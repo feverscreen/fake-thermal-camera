@@ -128,7 +128,8 @@ func triggerEventHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func sendCPTVFramesHandler(w http.ResponseWriter, r *http.Request) {
-	fileName := r.URL.Query().Get("cptv-file")
+	queryVars := r.URL.Query()
+	fileName := queryVars.Get("cptv-file")
 	if fileName == "" {
 		fileName = "test.cptv"
 	}

@@ -39,12 +39,15 @@ import (
 )
 
 const (
-    sendSocket = "/var/run/lepton-frames"
-    framesHz   = 9
-    sleepTime  = 30 * time.Second
+    sendSocket  = "/var/run/lepton-frames"
+    framesHz    = 9
+    sleepTime   = 30 * time.Second
+    lockTimeout = 10 * time.Second
 )
 
 var (
+    lockChannel chan struct{} = make(chan struct{}, 1)
+
     mu      sync.Mutex
     wg      sync.WaitGroup
     cptvDir = "/cptv-files"
@@ -126,23 +129,41 @@ func connectToSocket(dbusService *service) error {
 }
 
 func sendCPTV(conn *net.UnixConn, file string) error {
-    mu.Lock()
-    defer mu.Unlock()
-    fullpath := path.Join(cptvDir, file)
-    if _, err := os.Stat(fullpath); err != nil {
-        fmt.Printf("%v does not exist\n", fullpath)
-        return err
+    select {
+    case lockChannel <- struct{}{}:
+        fullpath := path.Join(cptvDir, file)
+        if _, err := os.Stat(fullpath); err != nil {
+            log.Printf("%v does not exist\n", fullpath)
+            unlock()
+            return err
+        }
+        r, err := cptv.NewFileReader(fullpath)
+        if err != nil {
+            unlock()
+            return err
+        }
+
+        log.Printf("sending raw frames of %v\n", fullpath)
+        go SendFrames(conn, r)
+        return nil
+    case <-time.After(lockTimeout):
+        // lock not acquired
+        return errors.New("Could not acquire lock")
     }
-    log.Printf("sending raw frames of %v\n", fullpath)
-    r, err := cptv.NewFileReader(fullpath)
-    if err != nil {
-        return err
-    }
+
+}
+
+func unlock() {
+    <-lockChannel
+}
+func SendFrames(conn *net.UnixConn, r *cptv.FileReader) error {
     defer r.Close()
+    defer unlock()
+
     frame := r.Reader.EmptyFrame()
-    count := 0
     // Telemetry size of 640 -64(size of telemetry words)
     var reaminingBytes [576]byte
+    sleepTime := time.Duration(1000/r.Reader.FPS()) * time.Millisecond
     for {
         err := r.ReadFrame(frame)
         if err == io.EOF {
@@ -155,7 +176,8 @@ func sendCPTV(conn *net.UnixConn, file string) error {
                 _ = binary.Write(buf, binary.BigEndian, row[x])
             }
         }
-        count++
+        // replicate cptv frame rate
+        time.Sleep(sleepTime)
         if _, err := conn.Write(buf.Bytes()); err != nil {
             // reconnect to socket
             wg.Done()
