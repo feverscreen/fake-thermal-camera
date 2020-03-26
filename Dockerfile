@@ -14,11 +14,10 @@ RUN mkdir -p /var/log/supervisor
 EXPOSE 2040
 EXPOSE 80
     
-COPY  thermal-recorder.conf /etc/supervisor/conf.d/thermal-recorder.conf
+COPY  fever-screen.conf /etc/supervisor/conf.d/fever-screen.conf
 COPY  thermal-uploader.conf /etc/supervisor/conf.d/thermal-uploader.conf
 COPY  event-reporter.conf /etc/supervisor/conf.d/event-reporter.conf
 COPY  fake-lepton.conf /etc/supervisor/conf.d/fake-lepton.conf
-COPY  management-interface.conf /etc/supervisor/conf.d/management-interface.conf
 
 
 # WORKDIR /server
