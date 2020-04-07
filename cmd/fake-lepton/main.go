@@ -163,7 +163,12 @@ func SendFrames(conn *net.UnixConn, r *cptv.FileReader) error {
     frame := r.Reader.EmptyFrame()
     // Telemetry size of 640 -64(size of telemetry words)
     var reaminingBytes [576]byte
-    sleepTime := time.Duration(1000/r.Reader.FPS()) * time.Millisecond
+
+    fps := r.Reader.FPS()
+    if fps == 0 {
+        fps = framesHz
+    }
+    frameSleep := time.Duration(1000/fps) * time.Millisecond
     for {
         err := r.ReadFrame(frame)
         if err == io.EOF {
@@ -177,7 +182,7 @@ func SendFrames(conn *net.UnixConn, r *cptv.FileReader) error {
             }
         }
         // replicate cptv frame rate
-        time.Sleep(sleepTime)
+        time.Sleep(frameSleep)
         if _, err := conn.Write(buf.Bytes()); err != nil {
             // reconnect to socket
             wg.Done()
