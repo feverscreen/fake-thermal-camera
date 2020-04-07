@@ -156,6 +156,7 @@ func sendCPTV(conn *net.UnixConn, file string) error {
 func unlock() {
     <-lockChannel
 }
+
 func SendFrames(conn *net.UnixConn, r *cptv.FileReader) error {
     defer r.Close()
     defer unlock()
