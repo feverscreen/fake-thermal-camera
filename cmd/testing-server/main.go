@@ -131,7 +131,7 @@ func sendCPTVFramesHandler(w http.ResponseWriter, r *http.Request) {
 	queryVars := r.URL.Query()
 	fileName := queryVars.Get("cptv-file")
 	if fileName == "" {
-		fileName = "test.cptv"
+		fileName = "person.cptv"
 	}
 	start := queryVars.Get("start")
 	end := queryVars.Get("end")
