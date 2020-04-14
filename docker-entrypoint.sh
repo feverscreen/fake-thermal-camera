@@ -1,8 +1,4 @@
 #!/bin/bash
-echo --- device-register ----
-cd /code/device-register
-echo Building device-register ....
-go build ./...
 
 echo --starting dbus --
 dbus-daemon --config-file=/usr/share/dbus-1/system.conf --print-address
@@ -27,7 +23,7 @@ disown
 
 echo --- test-server ----
 cd /server/cmd/testing-server/
-echo Building test-server....
-go build
-echo Running test server...
-./testing-server
+echo Building and running test-server....
+# go get github.com/markbates/refresh
+refresh init -c refresh.yml
+refresh run

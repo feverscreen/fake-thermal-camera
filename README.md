@@ -21,5 +21,5 @@ Open up http://localhost:2041/ to see the feverscreen display.
 
 Put any cptv files that you want to send to the fake camera in the directory fake-thermal-camera/cmd/fake-lepton/cptv-files
 
-Then in your browser call http://localhost:2040/sendCPTVFrames/?cptv-file={filename}
-If you don't specify a filename the default one will be played.
+Then in your browser call http://localhost:2040/sendCPTVFrames?cptv-file={filename}&start={frameNumber}&end={frameNumber}.
+All query params are optional.  If you don't specify a filename it will try to use the file test.cptv

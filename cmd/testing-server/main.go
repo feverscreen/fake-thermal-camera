@@ -133,13 +133,15 @@ func sendCPTVFramesHandler(w http.ResponseWriter, r *http.Request) {
 	if fileName == "" {
 		fileName = "test.cptv"
 	}
+	start := queryVars.Get("start")
+	end := queryVars.Get("end")
 	conn, err := dbus.SystemBus()
 	if err != nil {
 		logError(fmt.Sprintf("Could not connect to dbus: %v", err), w, http.StatusInternalServerError)
 		return
 	}
 	obj := conn.Object("org.cacophony.FakeLepton", "/org/cacophony/FakeLepton")
-	call := obj.Call("org.cacophony.FakeLepton.SendCPTV", 0, fileName)
+	call := obj.Call("org.cacophony.FakeLepton.SendCPTV", 0, fileName, start, end)
 	if call.Err != nil {
 
 		logError(fmt.Sprintf("Could not send CPTV %s: %s", fileName, call.Err), w, http.StatusInternalServerError)
