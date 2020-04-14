@@ -7,8 +7,8 @@ import getpass
 import grp
 import urllib.request
 
-IMAGE_NAME = "cacophony-fake-thermal-camera"
-CONTAINER_NAME = "cacophony-fake-thermal-camera"
+IMAGE_NAME = "fake-feverscreen-camera"
+CONTAINER_NAME = "fake-feverscreen-camera"
 
 
 parser = argparse.ArgumentParser(
@@ -99,6 +99,8 @@ run_cmd = [
     CONTAINER_NAME,
     "-p",
     "2040:2040",
+    "-p",
+    "2041:80",
     "--volume",
     os.getcwd() + ":/server",
     "--volume",

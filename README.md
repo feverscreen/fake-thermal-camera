@@ -5,30 +5,21 @@
 Project | fake-thermal-camera
 ---|---
 Platform | Linux
-Requires | Git repository [`cacophony-api`](https://github.com/TheCacophonyProject/cacophony-api) server to connect to </br> Git repository [`device-register`](https://github.com/TheCacophonyProject/device-register) </br> Git repository [`thermal-recorder`](https://github.com/TheCacophonyProject/thermal-recorder) </br> Git repository [`thermal-uploader`](https://github.com/TheCacophonyProject/thermal-uploader) </br> Git repository [`management-interface`](https://github.com/TheCacophonyProject/management-interface)</br> Git repository [`management-interface`](https://github.com/TheCacophonyProject/event-reporter)</br> Git repository [`event-reporter`](https://github.com/TheCacophonyProject/management-interface)</br> Git repository [`management-interface`](https://github.com/TheCacophonyProject/management-interface)
+Requires | Git repository [`feverscreen`](https://github.com/feverscreen/feverscreen)
 Licence | GNU General Public License v3.0
 
 ## Development Instructions
 
-Download fake-thermal-camera, and device-register, thermal-recorder, thermal-uploader, event-reporter, management-interface project into the same folder.
-
-Make sure the [`cacophony-api`](https://github.com/TheCacophonyProject/cacophony-api) server the devices will attach to is also running
+Download fake-thermal-camera and feverscreen into the same folder.
 
 In the fake-thermal-camera folder start the test server with
 ```
 > ./run
 ```
 
-Now you can start calling server commands.  You should create a device before you get started.
+Open up http://localhost:2041/ to see the feverscreen display.
 
-## Current server commands
-```
-GET http://localhost:2040/create/{device-name}?group-name={group-name}  Create a new device.  Needs to be called before any other command.
-GET http://localhost:2040/sendCPTVFrames/?cptv-file={filename}  Mocks a leptond camera and sends the frames of a CPTV file (including telemetry data) on /var/run/lepton-frames (does not require a device to be created first)
+Put any cptv files that you want to send to the fake camera in the directory fake-thermal-camera/cmd/fake-lepton/cptv-files
 
-cptv files are stored in cmd/fake-lepton/cptv-files you can add cptv files to this directory while the image is running and send them via sendCPTVFrames
-
-GET http://localhost:2040/triggerEvent/{type}  Triggers and event of the given event type.
-```
-
-Note that the server currently only runs one device at a time. Once a new device is created it is no longer possible to use the previously created device.
+Then in your browser call http://localhost:2040/sendCPTVFrames/?cptv-file={filename}
+If you don't specify a filename the default one will be played.
