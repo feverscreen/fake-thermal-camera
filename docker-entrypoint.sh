@@ -30,6 +30,6 @@ echo '*************************************************'
 echo --- test-server ----
 cd /server/cmd/testing-server/
 echo Building and running test-server....
-# go get github.com/markbates/refresh
+go get github.com/markbates/refresh
 refresh init -c refresh.yml
 refresh run
