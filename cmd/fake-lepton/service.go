@@ -4,6 +4,7 @@ import (
     "errors"
     "fmt"
     "net"
+    "net/url"
 
     "github.com/godbus/dbus"
     "github.com/godbus/dbus/introspect"
@@ -48,14 +49,8 @@ func genIntrospectable(v interface{}) introspect.Introspectable {
 }
 
 // SendCPTV will send the raw frames of a cptv, to thermal-recorder
-func (s *service) SendCPTV(filename string) *dbus.Error {
-    fmt.Printf("Recieved cptv %v\n", filename)
-    err := sendCPTV(s.conn, filename)
-    if err != nil {
-        return &dbus.Error{
-            Name: dbusName + ".StayOnForError",
-            Body: []interface{}{err.Error()},
-        }
-    }
+func (s *service) SendCPTV(params url.Values) *dbus.Error {
+    fmt.Printf("Recieved cptv %v\n", params["filename"])
+    send(params)
     return nil
 }

@@ -139,7 +139,7 @@ func sendCPTVFramesHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	obj := conn.Object("org.cacophony.FakeLepton", "/org/cacophony/FakeLepton")
-	call := obj.Call("org.cacophony.FakeLepton.SendCPTV", 0, fileName)
+	call := obj.Call("org.cacophony.FakeLepton.SendCPTV", 0, fileName, queryVars)
 	if call.Err != nil {
 
 		logError(fmt.Sprintf("Could not send CPTV %s: %s", fileName, call.Err), w, http.StatusInternalServerError)

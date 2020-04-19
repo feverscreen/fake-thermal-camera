@@ -25,8 +25,10 @@ import (
     "io"
     "log"
     "net"
+    "net/url"
     "os"
     "path"
+    "strconv"
     "sync"
     "time"
 
@@ -39,18 +41,23 @@ import (
 )
 
 const (
-    sendSocket  = "/var/run/lepton-frames"
-    framesHz    = 9
+    sendSocket = "/var/run/lepton-frames"
+    framesHz   = 9
+    queueSleep = 1 * time.Second
+
     sleepTime   = 30 * time.Second
     lockTimeout = 10 * time.Second
 )
 
 var (
     lockChannel chan struct{} = make(chan struct{}, 1)
+    wg          sync.WaitGroup
+    cptvDir     = "/cptv-files"
 
-    mu      sync.Mutex
-    wg      sync.WaitGroup
-    cptvDir = "/cptv-files"
+    stopSending = make(chan bool)
+
+    queueLock sync.Mutex
+    sendQueue = make([]url.Values, 3)
 )
 
 type argSpec struct {
@@ -123,71 +130,125 @@ func connectToSocket(dbusService *service) error {
 
     conn.Write([]byte("\n"))
     fmt.Printf("Listening for send cptv ...")
-    wg.Add(1)
-    wg.Wait()
-    return nil
+    return queueLoop(conn)
 }
 
-func sendCPTV(conn *net.UnixConn, file string) error {
-    select {
-    case lockChannel <- struct{}{}:
-        fullpath := path.Join(cptvDir, file)
-        if _, err := os.Stat(fullpath); err != nil {
-            log.Printf("%v does not exist\n", fullpath)
-            unlock()
-            return err
-        }
-        r, err := cptv.NewFileReader(fullpath)
-        if err != nil {
-            unlock()
-            return err
-        }
+func enqueue(params url.Values) {
+    queueLock.Lock()
+    defer queueLock.Unlock()
+    sendQueue = append(sendQueue, params)
+}
 
-        log.Printf("sending raw frames of %v\n", fullpath)
-        go SendFrames(conn, r)
+func dequeue() url.Values {
+    queueLock.Lock()
+    defer queueLock.Unlock()
+    if len(sendQueue) == 0 {
         return nil
-    case <-time.After(lockTimeout):
-        // lock not acquired
-        return errors.New("Could not acquire lock")
     }
-
+    top := sendQueue[0]
+    sendQueue = sendQueue[1:]
+    return top
 }
 
-func unlock() {
-    <-lockChannel
+func send(params url.Values) {
+    enq, err := strconv.ParseBool(params.Get("enqueue"))
+    if err != nil {
+        enq = false
+    }
+    if enq {
+        clearQueue()
+    }
+    enqueue(params)
 }
 
-func SendFrames(conn *net.UnixConn, r *cptv.FileReader) error {
+func queueLoop(conn *net.UnixConn) error {
+    for {
+        params := dequeue()
+        if params == nil {
+            time.Sleep(queueSleep)
+            continue
+        }
+        repeat, _ := strconv.Atoi(params.Get("repeat"))
+        if repeat == 0 {
+            repeat = 1
+        }
+
+        for i := 0; i < repeat; i++ {
+            err := sendCPTV(conn, params)
+            if err != nil {
+                return err
+            }
+        }
+    }
+}
+
+func forceStop() {
+    stopSending <- true
+}
+
+func clearQueue() {
+    queueLock.Lock()
+    defer queueLock.Unlock()
+    sendQueue = make([]url.Values, 3)
+    forceStop()
+}
+
+func sendCPTV(conn *net.UnixConn, params url.Values) error {
+    file := params.Get("filename")
+    fullpath := path.Join(cptvDir, file)
+    if _, err := os.Stat(fullpath); err != nil {
+        log.Printf("%v does not exist\n", fullpath)
+        return err
+    }
+    r, err := cptv.NewFileReader(fullpath)
+    if err != nil {
+        return err
+    }
     defer r.Close()
-    defer unlock()
+    log.Printf("sending raw frames of %v\n", fullpath)
+    return sendFrames(conn, r, params)
+
+}
+
+func sendFrames(conn *net.UnixConn, r *cptv.FileReader, params url.Values) error {
+    fps, _ := strconv.Atoi(params.Get("fps"))
+    if fps == 0 {
+        fps := r.Reader.FPS()
+        if fps == 0 {
+            fps = framesHz
+        }
+    }
 
     frame := r.Reader.EmptyFrame()
     // Telemetry size of 640 -64(size of telemetry words)
     var reaminingBytes [576]byte
 
-    fps := r.Reader.FPS()
-    if fps == 0 {
-        fps = framesHz
-    }
     frameSleep := time.Duration(1000/fps) * time.Millisecond
     for {
-        err := r.ReadFrame(frame)
-        if err == io.EOF {
-            break
-        }
-        buf := rawTelemetryBytes(frame.Status)
-        _ = binary.Write(buf, binary.BigEndian, reaminingBytes)
-        for _, row := range frame.Pix {
-            for x, _ := range row {
-                _ = binary.Write(buf, binary.BigEndian, row[x])
+        select {
+        case <-stopSending:
+            // reset
+            stopSending <- true
+            return nil
+        default:
+            err := r.ReadFrame(frame)
+            if err == io.EOF {
+                break
             }
-        }
-        // replicate cptv frame rate
-        time.Sleep(frameSleep)
-        if _, err := conn.Write(buf.Bytes()); err != nil {
-            // reconnect to socket
-            wg.Done()
-            return err
+            buf := rawTelemetryBytes(frame.Status)
+            _ = binary.Write(buf, binary.BigEndian, reaminingBytes)
+            for _, row := range frame.Pix {
+                for x, _ := range row {
+                    _ = binary.Write(buf, binary.BigEndian, row[x])
+                }
+            }
+            // replicate cptv frame rate
+            time.Sleep(frameSleep)
+            if _, err := conn.Write(buf.Bytes()); err != nil {
+                // reconnect to socket
+                wg.Done()
+                return err
+            }
         }
     }
     return nil
