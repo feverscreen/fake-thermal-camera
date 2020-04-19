@@ -177,7 +177,7 @@ func SendFrames(conn *net.UnixConn, r *cptv.FileReader, start int, end int) erro
         if err == io.EOF {
             break
         }
-        if index >= end {
+        if end > 0 && index >= end {
             break
         }
         if (index >= start) {
