@@ -356,12 +356,15 @@ func sendFrames(conn *net.UnixConn, r *cptv.FileReader, params url.Values) error
         }
     }
 
+    start, _ := strconv.Atoi(params.Get("start"))
+    end, _ := strconv.Atoi(params.Get("end"))
+
     frame := r.Reader.EmptyFrame()
     // Telemetry size of 640 -64(size of telemetry words)
     var reaminingBytes [576]byte
 
     frameSleep := time.Duration(1000/fps) * time.Millisecond
-    for {
+    for index := 0; index <= end || end == 0; index++ {
         select {
         case <-stopSending:
             // reset
@@ -372,19 +375,23 @@ func sendFrames(conn *net.UnixConn, r *cptv.FileReader, params url.Values) error
             if err == io.EOF {
                 break
             }
-            buf := rawTelemetryBytes(frame.Status)
-            _ = binary.Write(buf, binary.BigEndian, reaminingBytes)
-            for _, row := range frame.Pix {
-                for x, _ := range row {
-                    _ = binary.Write(buf, binary.BigEndian, row[x])
+
+            if index >= start {
+
+                buf := rawTelemetryBytes(frame.Status)
+                _ = binary.Write(buf, binary.BigEndian, reaminingBytes)
+                for _, row := range frame.Pix {
+                    for x, _ := range row {
+                        _ = binary.Write(buf, binary.BigEndian, row[x])
+                    }
                 }
-            }
-            // replicate cptv frame rate
-            time.Sleep(frameSleep)
-            if _, err := conn.Write(buf.Bytes()); err != nil {
-                // reconnect to socket
-                wg.Done()
-                return err
+                // replicate cptv frame rate
+                time.Sleep(frameSleep)
+                if _, err := conn.Write(buf.Bytes()); err != nil {
+                    // reconnect to socket
+                    wg.Done()
+                    return err
+                }
             }
         }
     }
