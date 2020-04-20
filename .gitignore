@@ -1,3 +1,3 @@
-fake-lepton
-testing-server
 gopath
+cmd/fake-lepton/fake-lepton
+cmd/testing-server/testing-server

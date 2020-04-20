@@ -128,7 +128,7 @@ func connectToSocket(dbusService *service) error {
     return nil
 }
 
-func sendCPTV(conn *net.UnixConn, file string) error {
+func sendCPTV(conn *net.UnixConn, file string, startFrame int, endFrame int) error {
     select {
     case lockChannel <- struct{}{}:
         fullpath := path.Join(cptvDir, file)
@@ -144,7 +144,7 @@ func sendCPTV(conn *net.UnixConn, file string) error {
         }
 
         log.Printf("sending raw frames of %v\n", fullpath)
-        go SendFrames(conn, r)
+        go SendFrames(conn, r, startFrame, endFrame)
         return nil
     case <-time.After(lockTimeout):
         // lock not acquired
@@ -157,11 +157,12 @@ func unlock() {
     <-lockChannel
 }
 
-func SendFrames(conn *net.UnixConn, r *cptv.FileReader) error {
+func SendFrames(conn *net.UnixConn, r *cptv.FileReader, start int, end int) error {
     defer r.Close()
     defer unlock()
 
     frame := r.Reader.EmptyFrame()
+    index := 0
     // Telemetry size of 640 -64(size of telemetry words)
     var reaminingBytes [576]byte
 
@@ -172,22 +173,28 @@ func SendFrames(conn *net.UnixConn, r *cptv.FileReader) error {
     frameSleep := time.Duration(1000/fps) * time.Millisecond
     for {
         err := r.ReadFrame(frame)
+        index++
         if err == io.EOF {
             break
         }
-        buf := rawTelemetryBytes(frame.Status)
-        _ = binary.Write(buf, binary.BigEndian, reaminingBytes)
-        for _, row := range frame.Pix {
-            for x, _ := range row {
-                _ = binary.Write(buf, binary.BigEndian, row[x])
-            }
+        if end > 0 && index >= end {
+            break
         }
-        // replicate cptv frame rate
-        time.Sleep(frameSleep)
-        if _, err := conn.Write(buf.Bytes()); err != nil {
-            // reconnect to socket
-            wg.Done()
-            return err
+        if (index >= start) {
+            buf := rawTelemetryBytes(frame.Status)
+            _ = binary.Write(buf, binary.BigEndian, reaminingBytes)
+            for _, row := range frame.Pix {
+                for x, _ := range row {
+                    _ = binary.Write(buf, binary.BigEndian, row[x])
+                }
+            }
+            // replicate cptv frame rate
+            time.Sleep(frameSleep)
+            if _, err := conn.Write(buf.Bytes()); err != nil {
+                // reconnect to socket
+                wg.Done()
+                return err
+            }
         }
     }
     return nil
