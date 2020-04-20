@@ -19,11 +19,14 @@ package main
 import (
     "bytes"
     "encoding/binary"
+    "encoding/json"
     "errors"
     "fmt"
     "gopkg.in/yaml.v1"
     "io"
     "log"
+    "math"
+    "math/rand"
     "net"
     "net/url"
     "os"
@@ -32,6 +35,7 @@ import (
     "sync"
     "time"
 
+    goconfig "github.com/TheCacophonyProject/go-config"
     arg "github.com/alexflint/go-arg"
 
     "github.com/TheCacophonyProject/go-cptv"
@@ -41,9 +45,10 @@ import (
 )
 
 const (
-    sendSocket = "/var/run/lepton-frames"
-    framesHz   = 9
-    queueSleep = 1 * time.Second
+    frameMinTemp = 3000
+    frameMaxTemp = 4000
+    sendSocket   = "/var/run/lepton-frames"
+    queueSleep   = 1 * time.Second
 
     sleepTime   = 30 * time.Second
     lockTimeout = 10 * time.Second
@@ -58,14 +63,18 @@ var (
 
     queueLock sync.Mutex
     sendQueue = make([]url.Values, 3)
+    camera    cptvframe.CameraSpec
 )
 
 type argSpec struct {
-    CPTVDir string `arg:"-c,--cptv-dir" help:"base path of cptv files"`
+    CPTVDir   string `arg:"-c,--cptv-dir" help:"base path of cptv files"`
+    ConfigDir string `arg:"-c,--config" help:"path to configuration directory"`
 }
 
 func procArgs() argSpec {
     args := argSpec{CPTVDir: cptvDir}
+    args.ConfigDir = goconfig.DefaultConfigDir
+
     arg.MustParse(&args)
     return args
 }
@@ -89,8 +98,13 @@ func runMain() error {
         return err
     }
 
+    camera, err = getCameraSpec(args.ConfigDir)
+    if err != nil {
+        return err
+    }
+
     for {
-        err := connectToSocket(dbusService)
+        err = connectToSocket(dbusService)
         if err != nil {
             fmt.Printf("Could not connect to socket %v will try again in %v\n", err, sleepTime)
             time.Sleep(sleepTime)
@@ -98,6 +112,19 @@ func runMain() error {
             fmt.Print("Disconnected\n")
         }
     }
+}
+
+func getCameraSpec(configDir string) (cptvframe.CameraSpec, error) {
+    configRW, err := goconfig.New(configDir)
+    if err != nil {
+        return nil, err
+    }
+    lepton := goconfig.DefaultLepton()
+    if err := configRW.Unmarshal(goconfig.LeptonKey, &lepton); err != nil {
+        return nil, err
+    }
+    camera, err := lepton3.New(lepton.SPISpeed)
+    return camera, err
 }
 
 func connectToSocket(dbusService *service) error {
@@ -115,12 +142,12 @@ func connectToSocket(dbusService *service) error {
     dbusService.conn = conn
 
     camera_specs := map[string]interface{}{
-        headers.YResolution: lepton3.FrameRows,
-        headers.XResolution: lepton3.FrameCols,
+        headers.YResolution: camera.ResY(),
+        headers.XResolution: camera.ResX(),
         headers.FrameSize:   lepton3.BytesPerFrame,
         headers.Model:       lepton3.Model,
         headers.Brand:       lepton3.Brand,
-        headers.FPS:         framesHz,
+        headers.FPS:         camera.FPS(),
     }
 
     cameraYAML, err := yaml.Marshal(camera_specs)
@@ -173,6 +200,13 @@ func queueLoop(conn *net.UnixConn) error {
             repeat = 1
         }
 
+        generate, err := strconv.ParseBool(params.Get("generate"))
+        if err != nil {
+            generate = false
+        }
+        if generate {
+            fmt.Printf("gen")
+        }
         for i := 0; i < repeat; i++ {
             err := sendCPTV(conn, params)
             if err != nil {
@@ -191,6 +225,109 @@ func clearQueue() {
     defer queueLock.Unlock()
     sendQueue = make([]url.Values, 3)
     forceStop()
+}
+
+func makeFrame(minTemp, maxTemp int, hotspots []hotspot) *cptvframe.Frame {
+    r := rand.New(rand.NewSource(99))
+
+    out := cptvframe.NewFrame(camera)
+    for y, row := range out.Pix {
+        for x, _ := range row {
+            pix := minTemp + r.Intn(maxTemp-minTemp)
+            out.Pix[y][x] = uint16(pix)
+        }
+    }
+
+    return out
+}
+
+type shape interface {
+    inside(h *spot, x, y int) bool
+}
+
+type rectangle struct {
+}
+
+func (r rectangle) inside(h *spot, x, y int) bool {
+    return (x >= h.X && x < h.X+h.Width) && (y >= h.Y && y < h.Y+h.Height)
+}
+
+type circle struct {
+    originX float64
+    originY float64
+    xRadSq  float64
+    yRadSq  float64
+}
+
+func (r circle) inside(h *spot, x, y int) bool {
+    res := math.Pow(float64(x)-r.originX, 2) / r.xRadSq
+    res += math.Pow(float64(y)-r.originY, 2) / r.yRadSq
+    return res <= 1
+}
+
+type hotspot struct {
+    spot  *spot
+    shape shape
+}
+
+func (h *hotspot) inside(x, y int) bool {
+    return h.shape.inside(h.spot, x, y)
+}
+
+type spot struct {
+    ShapeType string `json:"shapeType"`
+    X         int    `json:"x"`
+    Y         int    `json:"y"`
+    Width     int    `json:"width"`
+    Height    int    `json:"height"`
+    MinTemp   string `json:"minTemp"`
+    MaxTemp   int    `json:"maxTemp"`
+}
+
+func (hs *hotspot) UnmarshalJSON(data []byte) error {
+    fmt.Printf("unmarshalling json %v", string(data))
+    var h spot
+
+    if err := json.Unmarshal(data, &h); err != nil {
+        return err
+    }
+    fmt.Printf("unmarshalling shape %v\n", h.X)
+    hs.spot = &h
+
+    if h.ShapeType == "circle" {
+        c := &circle{}
+        c.originX = float64(h.X) + float64(h.Width)/2.0
+        c.originY = float64(h.Y) + float64(h.Height)/2.0
+        c.xRadSq = math.Pow(float64(h.Width)/2.0, 2)
+        c.yRadSq = math.Pow(float64(h.Height)/2.0, 2)
+        hs.shape = c
+        return nil
+    }
+    hs.shape = rectangle{}
+
+    return nil
+}
+
+func generateFrames(conn *net.UnixConn, params url.Values) error {
+    minTemp, _ := strconv.Atoi(params.Get("minTemp"))
+    maxTemp, _ := strconv.Atoi(params.Get("maxTemp"))
+    if minTemp == 0 {
+        minTemp = frameMinTemp
+    }
+    if maxTemp == 0 {
+        maxTemp = frameMaxTemp
+    }
+
+    hotspotRaw := params.Get("hotSpots")
+
+    var hotspots []hotspot
+    if hotspotRaw != "" {
+        if err := json.Unmarshal([]byte(hotspotRaw), &hotspots); err != nil {
+            log.Printf("Coult not parse hotspot %v\n", err)
+        }
+    }
+    makeFrame(minTemp, maxTemp, hotspots)
+    return nil
 }
 
 func sendCPTV(conn *net.UnixConn, params url.Values) error {
@@ -215,7 +352,7 @@ func sendFrames(conn *net.UnixConn, r *cptv.FileReader, params url.Values) error
     if fps == 0 {
         fps := r.Reader.FPS()
         if fps == 0 {
-            fps = framesHz
+            fps = camera.FPS()
         }
     }
 
