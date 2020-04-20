@@ -9,12 +9,12 @@ echo Building fever-fever....
 make build ./...
 cp    "../feverscreen/webserver/_release/managementd-avahi.service" "/etc/avahi/services/managementd.service"
 
-echo --- fake-lepton ----
-cd /server
-echo Building fake-lepton....
-cd cmd/fake-lepton/
-go build
-cp org.cacophony.FakeLepton.conf /etc/dbus-1/system.d/org.cacophony.FakeLepton.conf
+# echo --- fake-lepton ----
+# cd /server
+# echo Building fake-lepton....
+# cd cmd/fake-lepton/
+# go build
+# cp org.cacophony.FakeLepton.conf /etc/dbus-1/system.d/org.cacophony.FakeLepton.conf
 
 
 echo --- starting supervisord ---

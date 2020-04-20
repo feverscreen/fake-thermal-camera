@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <http://www.gnu.org/licenses/>.
 
-package main
+package fakecamera
 
 import (
     "bytes"
@@ -36,7 +36,6 @@ import (
     "time"
 
     goconfig "github.com/TheCacophonyProject/go-config"
-    arg "github.com/alexflint/go-arg"
 
     "github.com/TheCacophonyProject/go-cptv"
     cptvframe "github.com/TheCacophonyProject/go-cptv/cptvframe"
@@ -59,52 +58,53 @@ var (
     wg          sync.WaitGroup
     cptvDir     = "/cptv-files"
 
-    stopSending = make(chan bool)
+    stopSending = false
 
     queueLock sync.Mutex
-    sendQueue = make([]url.Values, 3)
+    sendQueue = make([]url.Values, 0, 3)
     camera    cptvframe.CameraSpec
 )
 
-type argSpec struct {
-    CPTVDir   string `arg:"-c,--cptv-dir" help:"base path of cptv files"`
-    ConfigDir string `arg:"-c,--config" help:"path to configuration directory"`
-}
+// type argSpec struct {
+//     CPTVDir   string `arg:"-c,--cptv-dir" help:"base path of cptv files"`
+//     ConfigDir string `arg:"-c,--config" help:"path to configuration directory"`
+// }
 
-func procArgs() argSpec {
-    args := argSpec{CPTVDir: cptvDir}
-    args.ConfigDir = goconfig.DefaultConfigDir
+// func procArgs() argSpec {
+//     args := argSpec{CPTVDir: cptvDir}
+//     args.ConfigDir = goconfig.DefaultConfigDir
 
-    arg.MustParse(&args)
-    return args
-}
+//     arg.MustParse(&args)
+//     return args
+// }
 
-func main() {
-    err := runMain()
-    fmt.Printf("closing")
+// func main() {
+//     args := procArgs()
+
+//     err := runMain()
+//     fmt.Printf("closing")
+//     if err != nil {
+//         log.Fatal(err)
+//     }
+
+// }
+
+// type fakeLepton struct {
+//     CPTVDir   string
+//     ConfigDir string
+// }
+
+func RunCamera(newCPTVDir, configDir string) error {
+    cptvDir = newCPTVDir
+    var err error
+    camera, err = getCameraSpec(configDir)
     if err != nil {
-        log.Fatal(err)
-    }
-
-}
-
-func runMain() error {
-    args := procArgs()
-    cptvDir = args.CPTVDir
-
-    log.Println("starting d-bus service")
-    dbusService, err := startService(nil)
-    if err != nil {
-        return err
-    }
-
-    camera, err = getCameraSpec(args.ConfigDir)
-    if err != nil {
+        log.Printf("Error getting camera %v\n", err)
         return err
     }
 
     for {
-        err = connectToSocket(dbusService)
+        err = connectToSocket()
         if err != nil {
             fmt.Printf("Could not connect to socket %v will try again in %v\n", err, sleepTime)
             time.Sleep(sleepTime)
@@ -123,23 +123,22 @@ func getCameraSpec(configDir string) (cptvframe.CameraSpec, error) {
     if err := configRW.Unmarshal(goconfig.LeptonKey, &lepton); err != nil {
         return nil, err
     }
-    camera, err := lepton3.New(lepton.SPISpeed)
-    return camera, err
+    camera = &lepton3.Lepton3{}
+    return camera, nil
 }
 
-func connectToSocket(dbusService *service) error {
+func connectToSocket() error {
     log.Printf("dialing frame output socket %s\n", sendSocket)
     conn, err := net.DialUnix("unix", nil, &net.UnixAddr{
         Net:  "unix",
         Name: sendSocket,
     })
     if err != nil {
-        fmt.Printf("error %v\n", err)
+        log.Printf("error %v\n", err)
         return errors.New("error: connecting to frame output socket failed")
     }
     defer conn.Close()
     conn.SetWriteBuffer(lepton3.FrameCols * lepton3.FrameCols * 2 * 20)
-    dbusService.conn = conn
 
     camera_specs := map[string]interface{}{
         headers.YResolution: camera.ResY(),
@@ -156,7 +155,7 @@ func connectToSocket(dbusService *service) error {
     }
 
     conn.Write([]byte("\n"))
-    fmt.Printf("Listening for send cptv ...")
+    log.Printf("Listening for send cptv ...")
     return queueLoop(conn)
 }
 
@@ -177,12 +176,12 @@ func dequeue() url.Values {
     return top
 }
 
-func send(params url.Values) {
+func Send(params url.Values) {
     enq, err := strconv.ParseBool(params.Get("enqueue"))
     if err != nil {
         enq = false
     }
-    if enq {
+    if !enq {
         clearQueue()
     }
     enqueue(params)
@@ -190,6 +189,7 @@ func send(params url.Values) {
 
 func queueLoop(conn *net.UnixConn) error {
     for {
+        stopSending = false
         params := dequeue()
         if params == nil {
             time.Sleep(queueSleep)
@@ -205,40 +205,28 @@ func queueLoop(conn *net.UnixConn) error {
             generate = false
         }
         if generate {
-            fmt.Printf("gen")
-        }
-        for i := 0; i < repeat; i++ {
-            err := sendCPTV(conn, params)
-            if err != nil {
-                return err
+            frames := generateFrames(conn, params, repeat)
+            sendFrames(conn, params, frames)
+        } else {
+            for i := 0; i < repeat; i++ {
+                err := sendCPTV(conn, params)
+                if err != nil {
+                    return err
+                }
             }
         }
     }
 }
 
 func forceStop() {
-    stopSending <- true
+    stopSending = true
 }
 
 func clearQueue() {
     queueLock.Lock()
     defer queueLock.Unlock()
-    sendQueue = make([]url.Values, 3)
+    sendQueue = make([]url.Values, 0, 3)
     forceStop()
-}
-
-func makeFrame(minTemp, maxTemp int, hotspots []hotspot) *cptvframe.Frame {
-    r := rand.New(rand.NewSource(99))
-
-    out := cptvframe.NewFrame(camera)
-    for y, row := range out.Pix {
-        for x, _ := range row {
-            pix := minTemp + r.Intn(maxTemp-minTemp)
-            out.Pix[y][x] = uint16(pix)
-        }
-    }
-
-    return out
 }
 
 type shape interface {
@@ -270,6 +258,10 @@ type hotspot struct {
     shape shape
 }
 
+func (h *hotspot) generatePixel() int {
+    return h.spot.MinTemp + rand.Intn(h.spot.MaxTemp-h.spot.MinTemp)
+}
+
 func (h *hotspot) inside(x, y int) bool {
     return h.shape.inside(h.spot, x, y)
 }
@@ -280,18 +272,15 @@ type spot struct {
     Y         int    `json:"y"`
     Width     int    `json:"width"`
     Height    int    `json:"height"`
-    MinTemp   string `json:"minTemp"`
+    MinTemp   int    `json:"minTemp"`
     MaxTemp   int    `json:"maxTemp"`
 }
 
 func (hs *hotspot) UnmarshalJSON(data []byte) error {
-    fmt.Printf("unmarshalling json %v", string(data))
     var h spot
-
     if err := json.Unmarshal(data, &h); err != nil {
         return err
     }
-    fmt.Printf("unmarshalling shape %v\n", h.X)
     hs.spot = &h
 
     if h.ShapeType == "circle" {
@@ -308,9 +297,35 @@ func (hs *hotspot) UnmarshalJSON(data []byte) error {
     return nil
 }
 
-func generateFrames(conn *net.UnixConn, params url.Values) error {
+func makeFrame(minTemp, maxTemp int, hotspots []hotspot) *cptvframe.Frame {
+    var pix int
+    out := cptvframe.NewFrame(camera)
+    for y, row := range out.Pix {
+        for x, _ := range row {
+            pix = minTemp + rand.Intn(maxTemp-minTemp)
+
+            for _, hotspot := range hotspots {
+                if hotspot.inside(x, y) {
+                    pix = hotspot.generatePixel()
+                    break
+                }
+
+            }
+            out.Pix[y][x] = uint16(pix)
+        }
+    }
+
+    return out
+}
+
+func generateFrames(conn *net.UnixConn, params url.Values, repeat int) []*cptvframe.Frame {
     minTemp, _ := strconv.Atoi(params.Get("minTemp"))
     maxTemp, _ := strconv.Atoi(params.Get("maxTemp"))
+    ffc, _ := strconv.ParseBool(params.Get("ffc"))
+    fps, _ := strconv.Atoi(params.Get("fps"))
+    if fps == 0 {
+        fps = camera.FPS()
+    }
     if minTemp == 0 {
         minTemp = frameMinTemp
     }
@@ -318,7 +333,7 @@ func generateFrames(conn *net.UnixConn, params url.Values) error {
         maxTemp = frameMaxTemp
     }
 
-    hotspotRaw := params.Get("hotSpots")
+    hotspotRaw := params.Get("hotspots")
 
     var hotspots []hotspot
     if hotspotRaw != "" {
@@ -326,12 +341,22 @@ func generateFrames(conn *net.UnixConn, params url.Values) error {
             log.Printf("Coult not parse hotspot %v\n", err)
         }
     }
-    makeFrame(minTemp, maxTemp, hotspots)
-    return nil
+
+    frames := make([]*cptvframe.Frame, repeat)
+    for i := 0; i < repeat; i++ {
+        frame := makeFrame(minTemp, maxTemp, hotspots)
+        if ffc {
+            frame.StatusFFCState = "FFCRunning"
+            frame.Status.TimeOn = time.Duration(i*fps) * time.Millisecond
+            frame.Status.LastFFCTime = time.Duration(i*fps) * time.Millisecond
+        }
+        frames[i] = frame
+    }
+    return frames
 }
 
 func sendCPTV(conn *net.UnixConn, params url.Values) error {
-    file := params.Get("filename")
+    file := params.Get("cptv-file")
     fullpath := path.Join(cptvDir, file)
     if _, err := os.Stat(fullpath); err != nil {
         log.Printf("%v does not exist\n", fullpath)
@@ -343,14 +368,47 @@ func sendCPTV(conn *net.UnixConn, params url.Values) error {
     }
     defer r.Close()
     log.Printf("sending raw frames of %v\n", fullpath)
-    return sendFrames(conn, r, params)
+    return sendFramesFromFile(conn, r, params)
 
 }
 
-func sendFrames(conn *net.UnixConn, r *cptv.FileReader, params url.Values) error {
+func sendFrames(conn *net.UnixConn, params url.Values, frames []*cptvframe.Frame) error {
     fps, _ := strconv.Atoi(params.Get("fps"))
     if fps == 0 {
-        fps := r.Reader.FPS()
+        fps = camera.FPS()
+    }
+
+    // Telemetry size of 640 -64(size of telemetry words)
+    var reaminingBytes [576]byte
+
+    frameSleep := time.Duration(1000/fps) * time.Millisecond
+    for _, frame := range frames {
+        if stopSending {
+            return nil
+        }
+        buf := rawTelemetryBytes(frame.Status)
+        _ = binary.Write(buf, binary.BigEndian, reaminingBytes)
+        for _, row := range frame.Pix {
+            for x, _ := range row {
+                _ = binary.Write(buf, binary.BigEndian, row[x])
+            }
+        }
+        // replicate cptv frame rate
+        time.Sleep(frameSleep)
+        if _, err := conn.Write(buf.Bytes()); err != nil {
+            // reconnect to socket
+            wg.Done()
+            return err
+        }
+
+    }
+    return nil
+}
+
+func sendFramesFromFile(conn *net.UnixConn, r *cptv.FileReader, params url.Values) error {
+    fps, _ := strconv.Atoi(params.Get("fps"))
+    if fps == 0 {
+        fps = r.Reader.FPS()
         if fps == 0 {
             fps = camera.FPS()
         }
@@ -365,35 +423,31 @@ func sendFrames(conn *net.UnixConn, r *cptv.FileReader, params url.Values) error
 
     frameSleep := time.Duration(1000/fps) * time.Millisecond
     for index := 0; index <= end || end == 0; index++ {
-        select {
-        case <-stopSending:
-            // reset
-            stopSending <- true
+        if stopSending {
             return nil
-        default:
-            err := r.ReadFrame(frame)
-            if err == io.EOF {
-                break
+        }
+        err := r.ReadFrame(frame)
+        if err == io.EOF {
+            break
+        }
+
+        if index >= start {
+            buf := rawTelemetryBytes(frame.Status)
+            _ = binary.Write(buf, binary.BigEndian, reaminingBytes)
+            for _, row := range frame.Pix {
+                for x, _ := range row {
+                    _ = binary.Write(buf, binary.BigEndian, row[x])
+                }
             }
-
-            if index >= start {
-
-                buf := rawTelemetryBytes(frame.Status)
-                _ = binary.Write(buf, binary.BigEndian, reaminingBytes)
-                for _, row := range frame.Pix {
-                    for x, _ := range row {
-                        _ = binary.Write(buf, binary.BigEndian, row[x])
-                    }
-                }
-                // replicate cptv frame rate
-                time.Sleep(frameSleep)
-                if _, err := conn.Write(buf.Bytes()); err != nil {
-                    // reconnect to socket
-                    wg.Done()
-                    return err
-                }
+            // replicate cptv frame rate
+            time.Sleep(frameSleep)
+            if _, err := conn.Write(buf.Bytes()); err != nil {
+                // reconnect to socket
+                wg.Done()
+                return err
             }
         }
+
     }
     return nil
 }

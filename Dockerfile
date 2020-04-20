@@ -17,7 +17,6 @@ EXPOSE 80
 COPY  fever-screen.conf /etc/supervisor/conf.d/fever-screen.conf
 COPY  thermal-uploader.conf /etc/supervisor/conf.d/thermal-uploader.conf
 COPY  event-reporter.conf /etc/supervisor/conf.d/event-reporter.conf
-COPY  fake-lepton.conf /etc/supervisor/conf.d/fake-lepton.conf
 
 
 # WORKDIR /server

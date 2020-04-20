@@ -112,7 +112,7 @@ run_cmd = [
     "--volume",
     base_path + "/thermal-uploader" + ":/code/thermal-uploader",
     "--volume",
-    os.getcwd() + "/cmd/fake-lepton/cptv-files" + ":/cptv-files",
+    os.getcwd() + "/fakecamera/cptv-files" + ":/cptv-files",
     "--volume",
     os.environ["GOPATH"] + ":/go",
 ]

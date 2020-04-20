@@ -12,10 +12,35 @@ import (
 	"github.com/godbus/dbus"
 	"github.com/gorilla/mux"
 
+	camera "github.com/TheCacophonyProject/fake-thermal-camera/fakecamera"
 	config "github.com/TheCacophonyProject/go-config"
+	arg "github.com/alexflint/go-arg"
 )
 
+type argSpec struct {
+	CPTVDir   string `arg:"-c,--cptv-dir" help:"base path of cptv files"`
+	ConfigDir string `arg:"-c,--config" help:"path to configuration directory"`
+}
+
+var (
+	cptvDir = "/cptv-files"
+)
+
+func procArgs() argSpec {
+	args := argSpec{CPTVDir: cptvDir}
+	args.ConfigDir = config.DefaultConfigDir
+
+	arg.MustParse(&args)
+	return args
+}
+
 func main() {
+	args := procArgs()
+	go camera.RunCamera(args.CPTVDir, args.ConfigDir)
+	if err := runServer(); err != nil {
+		log.Fatal(err)
+	}
+
 	if err := runServer(); err != nil {
 		log.Fatal(err)
 	}
@@ -131,24 +156,10 @@ func sendCPTVFramesHandler(w http.ResponseWriter, r *http.Request) {
 	queryVars := r.URL.Query()
 	fileName := queryVars.Get("cptv-file")
 	if fileName == "" {
-		fileName = "person.cptv"
+		queryVars.Set("cptv-file", "person.cptv")
 	}
-	start := queryVars.Get("start")
-	end := queryVars.Get("end")
-	conn, err := dbus.SystemBus()
-	if err != nil {
-		logError(fmt.Sprintf("Could not connect to dbus: %v", err), w, http.StatusInternalServerError)
-		return
-	}
-	obj := conn.Object("org.cacophony.FakeLepton", "/org/cacophony/FakeLepton")
-	call := obj.Call("org.cacophony.FakeLepton.SendCPTV", 0, queryVars)
-
-	if call.Err != nil {
-
-		logError(fmt.Sprintf("Could not send CPTV %s: %s", fileName, call.Err), w, http.StatusInternalServerError)
-
-		return
-	}
+	log.Printf("")
+	camera.Send(queryVars)
 
 	log.Printf("Sent CPTV Frames")
 	io.WriteString(w, "Success")
