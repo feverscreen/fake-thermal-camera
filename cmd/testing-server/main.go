@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os/exec"
+	"strconv"
 	"time"
 
 	"github.com/godbus/dbus"
@@ -56,6 +57,7 @@ func runServer() error {
 	router.HandleFunc("/", homeHandler)
 	router.HandleFunc("/triggerEvent/{type}", triggerEventHandler)
 	router.HandleFunc("/sendCPTVFrames", sendCPTVFramesHandler)
+	router.HandleFunc("/clearCPTVQueue", clearCPTVQueue)
 
 	log.Fatal(http.ListenAndServe(":2040", router))
 	return nil
@@ -162,6 +164,14 @@ func sendCPTVFramesHandler(w http.ResponseWriter, r *http.Request) {
 	camera.Send(queryVars)
 
 	log.Printf("Sent CPTV Frames")
+	io.WriteString(w, "Success")
+}
+
+func clearCPTVQueue(w http.ResponseWriter, r *http.Request) {
+	stop, _ := strconv.ParseBool(r.URL.Query().Get("stop"))
+	camera.ClearQueue(stop)
+
+	log.Printf("Clear CPTV Frames")
 	io.WriteString(w, "Success")
 }
 

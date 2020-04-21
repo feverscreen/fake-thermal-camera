@@ -54,6 +54,7 @@ const (
 )
 
 var (
+    startTime                 = time.Now()
     lockChannel chan struct{} = make(chan struct{}, 1)
     wg          sync.WaitGroup
     cptvDir     = "/cptv-files"
@@ -64,35 +65,6 @@ var (
     sendQueue = make([]url.Values, 0, 3)
     camera    cptvframe.CameraSpec
 )
-
-// type argSpec struct {
-//     CPTVDir   string `arg:"-c,--cptv-dir" help:"base path of cptv files"`
-//     ConfigDir string `arg:"-c,--config" help:"path to configuration directory"`
-// }
-
-// func procArgs() argSpec {
-//     args := argSpec{CPTVDir: cptvDir}
-//     args.ConfigDir = goconfig.DefaultConfigDir
-
-//     arg.MustParse(&args)
-//     return args
-// }
-
-// func main() {
-//     args := procArgs()
-
-//     err := runMain()
-//     fmt.Printf("closing")
-//     if err != nil {
-//         log.Fatal(err)
-//     }
-
-// }
-
-// type fakeLepton struct {
-//     CPTVDir   string
-//     ConfigDir string
-// }
 
 func RunCamera(newCPTVDir, configDir string) error {
     cptvDir = newCPTVDir
@@ -182,7 +154,7 @@ func Send(params url.Values) {
         enq = false
     }
     if !enq {
-        clearQueue()
+        ClearQueue(true)
     }
     enqueue(params)
 }
@@ -205,8 +177,7 @@ func queueLoop(conn *net.UnixConn) error {
             generate = false
         }
         if generate {
-            frames := generateFrames(conn, params, repeat)
-            sendFrames(conn, params, frames)
+            sendFrames(conn, params, repeat)
         } else {
             for i := 0; i < repeat; i++ {
                 err := sendCPTV(conn, params)
@@ -222,35 +193,43 @@ func forceStop() {
     stopSending = true
 }
 
-func clearQueue() {
+func ClearQueue(stop bool) {
     queueLock.Lock()
     defer queueLock.Unlock()
     sendQueue = make([]url.Values, 0, 3)
-    forceStop()
+    if stop {
+        forceStop()
+    }
 }
 
 type shape interface {
-    inside(h *spot, x, y int) bool
+    // gets the 2 x intersections points of thie line (y) with the shape
+    intersections(h *spot, y int) (int, int)
 }
 
 type rectangle struct {
 }
 
-func (r rectangle) inside(h *spot, x, y int) bool {
-    return (x >= h.X && x < h.X+h.Width) && (y >= h.Y && y < h.Y+h.Height)
+func (r rectangle) intersections(h *spot, y int) (int, int) {
+    return h.X, h.X + h.Width
 }
 
 type circle struct {
-    originX float64
-    originY float64
-    xRadSq  float64
-    yRadSq  float64
+    h, k, a, b float64
 }
 
-func (r circle) inside(h *spot, x, y int) bool {
-    res := math.Pow(float64(x)-r.originX, 2) / r.xRadSq
-    res += math.Pow(float64(y)-r.originY, 2) / r.yRadSq
-    return res <= 1
+func NewCircle(spot *spot) circle {
+    c := circle{}
+    c.h = float64(spot.X) + float64(spot.Width)/2.0
+    c.k = float64(spot.Y) + float64(spot.Height)/2.0
+    c.a = math.Pow(float64(spot.Width)/2.0, 2)
+    c.b = math.Pow(float64(spot.Height)/2.0, 2)
+    return c
+}
+
+func (r circle) intersections(h *spot, y int) (int, int) {
+    res := math.Sqrt(r.a * (1 - math.Pow(float64(y)-r.k, 2)/r.b))
+    return int(math.Ceil(-res + r.h)), int(math.Floor(res + r.h))
 }
 
 type hotspot struct {
@@ -258,12 +237,25 @@ type hotspot struct {
     shape shape
 }
 
-func (h *hotspot) generatePixel() int {
-    return h.spot.MinTemp + rand.Intn(h.spot.MaxTemp-h.spot.MinTemp)
+func (h hotspot) addSpot(pix [][]uint16) {
+    height := len(pix)
+    width := len(pix[0])
+    yStart := int(math.Max(float64(h.spot.Y), 0))
+    for i := yStart; i < h.spot.Y+h.spot.Height && i < height; i++ {
+        start, stop := h.shape.intersections(h.spot, i)
+        start = int(math.Max(float64(start), 0))
+        for z := start; z <= stop && z < width; z++ {
+            pix[i][z] = h.generatePixel()
+        }
+    }
 }
 
-func (h *hotspot) inside(x, y int) bool {
-    return h.shape.inside(h.spot, x, y)
+func (h *hotspot) generatePixel() uint16 {
+    if h.spot.MaxTemp <= h.spot.MinTemp {
+        return uint16(h.spot.MinTemp)
+    }
+
+    return uint16(h.spot.MinTemp + rand.Intn(h.spot.MaxTemp-h.spot.MinTemp))
 }
 
 type spot struct {
@@ -284,12 +276,7 @@ func (hs *hotspot) UnmarshalJSON(data []byte) error {
     hs.spot = &h
 
     if h.ShapeType == "circle" {
-        c := &circle{}
-        c.originX = float64(h.X) + float64(h.Width)/2.0
-        c.originY = float64(h.Y) + float64(h.Height)/2.0
-        c.xRadSq = math.Pow(float64(h.Width)/2.0, 2)
-        c.yRadSq = math.Pow(float64(h.Height)/2.0, 2)
-        hs.shape = c
+        hs.shape = NewCircle(&h)
         return nil
     }
     hs.shape = rectangle{}
@@ -302,59 +289,35 @@ func makeFrame(minTemp, maxTemp int, hotspots []hotspot) *cptvframe.Frame {
     out := cptvframe.NewFrame(camera)
     for y, row := range out.Pix {
         for x, _ := range row {
-            pix = minTemp + rand.Intn(maxTemp-minTemp)
-
-            for _, hotspot := range hotspots {
-                if hotspot.inside(x, y) {
-                    pix = hotspot.generatePixel()
-                    break
-                }
-
+            if maxTemp <= minTemp {
+                pix = minTemp
+            } else {
+                pix = minTemp + rand.Intn(maxTemp-minTemp)
             }
             out.Pix[y][x] = uint16(pix)
         }
     }
-
+    addHotpsots(out.Pix, hotspots)
     return out
 }
 
-func generateFrames(conn *net.UnixConn, params url.Values, repeat int) []*cptvframe.Frame {
-    minTemp, _ := strconv.Atoi(params.Get("minTemp"))
-    maxTemp, _ := strconv.Atoi(params.Get("maxTemp"))
-    ffc, _ := strconv.ParseBool(params.Get("ffc"))
-    fps, _ := strconv.Atoi(params.Get("fps"))
-    if fps == 0 {
-        fps = camera.FPS()
-    }
-    if minTemp == 0 {
-        minTemp = frameMinTemp
-    }
-    if maxTemp == 0 {
-        maxTemp = frameMaxTemp
+func addHotpsots(pix [][]uint16, hotspots []hotspot) {
+    if hotspots == nil {
+        return
     }
 
-    hotspotRaw := params.Get("hotspots")
-
-    var hotspots []hotspot
-    if hotspotRaw != "" {
-        if err := json.Unmarshal([]byte(hotspotRaw), &hotspots); err != nil {
-            log.Printf("Coult not parse hotspot %v\n", err)
-        }
+    for _, hotspot := range hotspots {
+        hotspot.addSpot(pix)
     }
-
-    frames := make([]*cptvframe.Frame, repeat)
-    for i := 0; i < repeat; i++ {
-        frame := makeFrame(minTemp, maxTemp, hotspots)
-        if ffc {
-            frame.StatusFFCState = "FFCRunning"
-            frame.Status.TimeOn = time.Duration(i*fps) * time.Millisecond
-            frame.Status.LastFFCTime = time.Duration(i*fps) * time.Millisecond
-        }
-        frames[i] = frame
-    }
-    return frames
 }
 
+func setStatus(telemetry *cptvframe.Telemetry, timeon time.Duration, ffc bool, plusMS int) {
+    telemetry.TimeOn = timeon + time.Duration(plusMS)*time.Millisecond
+    if ffc {
+        telemetry.FFCState = "FFCRunning"
+        telemetry.LastFFCTime = timeon + time.Duration(plusMS)*time.Millisecond
+    }
+}
 func sendCPTV(conn *net.UnixConn, params url.Values) error {
     file := params.Get("cptv-file")
     fullpath := path.Join(cptvDir, file)
@@ -372,20 +335,45 @@ func sendCPTV(conn *net.UnixConn, params url.Values) error {
 
 }
 
-func sendFrames(conn *net.UnixConn, params url.Values, frames []*cptvframe.Frame) error {
+func getHotspots(params url.Values) ([]hotspot, error) {
+    hotspotRaw := params.Get("hotspots")
+    var hotspots []hotspot
+    if hotspotRaw != "" {
+        if err := json.Unmarshal([]byte(hotspotRaw), &hotspots); err != nil {
+            log.Printf("Coult not parse hotspot %v\n", err)
+            return nil, err
+        }
+    }
+    return hotspots, nil
+}
+
+func sendFrames(conn *net.UnixConn, params url.Values, frames int) error {
+    minTemp, _ := strconv.Atoi(params.Get("minTemp"))
+    maxTemp, _ := strconv.Atoi(params.Get("maxTemp"))
+    ffc, _ := strconv.ParseBool(params.Get("ffc"))
     fps, _ := strconv.Atoi(params.Get("fps"))
     if fps == 0 {
         fps = camera.FPS()
     }
+    if minTemp == 0 {
+        minTemp = frameMinTemp
+    }
+    if maxTemp == 0 {
+        maxTemp = frameMaxTemp
+    }
+    hotspots, _ := getHotspots(params)
 
     // Telemetry size of 640 -64(size of telemetry words)
     var reaminingBytes [576]byte
-
     frameSleep := time.Duration(1000/fps) * time.Millisecond
-    for _, frame := range frames {
+    for i := 0; i < frames; i++ {
         if stopSending {
             return nil
         }
+
+        frame := makeFrame(minTemp, maxTemp, hotspots)
+        setStatus(&frame.Status, time.Since(startTime), ffc, 0)
+
         buf := rawTelemetryBytes(frame.Status)
         _ = binary.Write(buf, binary.BigEndian, reaminingBytes)
         for _, row := range frame.Pix {
@@ -413,9 +401,10 @@ func sendFramesFromFile(conn *net.UnixConn, r *cptv.FileReader, params url.Value
             fps = camera.FPS()
         }
     }
-
     start, _ := strconv.Atoi(params.Get("start"))
     end, _ := strconv.Atoi(params.Get("end"))
+    hotspots, _ := getHotspots(params)
+    ffc, _ := strconv.ParseBool(params.Get("ffc"))
 
     frame := r.Reader.EmptyFrame()
     // Telemetry size of 640 -64(size of telemetry words)
@@ -432,6 +421,9 @@ func sendFramesFromFile(conn *net.UnixConn, r *cptv.FileReader, params url.Value
         }
 
         if index >= start {
+            addHotpsots(frame.Pix, hotspots)
+            setStatus(&frame.Status, frame.Status.TimeOn, ffc, 0)
+
             buf := rawTelemetryBytes(frame.Status)
             _ = binary.Write(buf, binary.BigEndian, reaminingBytes)
             for _, row := range frame.Pix {
@@ -454,13 +446,13 @@ func sendFramesFromFile(conn *net.UnixConn, r *cptv.FileReader, params url.Value
 
 func rawTelemetryBytes(t cptvframe.Telemetry) *bytes.Buffer {
     var tw telemetryWords
-    tw.TimeOn = ToMS(t.TimeOn)
+    tw.TimeOn = uint32(t.TimeOn.Milliseconds())
     tw.StatusBits = ffcStateToStatus(t.FFCState)
     tw.FrameCounter = uint32(t.FrameCount)
     tw.FrameMean = t.FrameMean
     tw.FPATemp = ToK(t.TempC)
     tw.FPATempLastFFC = ToK(t.LastFFCTempC)
-    tw.TimeCounterLastFFC = ToMS(t.LastFFCTime)
+    tw.TimeCounterLastFFC = uint32(t.LastFFCTime.Milliseconds())
     buf := new(bytes.Buffer)
     binary.Write(buf, lepton3.Big16, tw)
     return buf
@@ -482,29 +474,24 @@ func ffcStateToStatus(status string) uint32 {
     return state
 }
 
-type durationMS uint32
 type centiK uint16
 
 func ToK(c float64) centiK {
     return centiK(c*100 + 27315)
 }
 
-func ToMS(d time.Duration) durationMS {
-    return durationMS(d / time.Millisecond)
-}
-
 type telemetryWords struct {
-    TelemetryRevision  uint16     // 0  *
-    TimeOn             durationMS // 1  *
-    StatusBits         uint32     // 3  * Bit field
-    Reserved5          [8]uint16  // 5  *
-    SoftwareRevision   uint64     // 13 - Junk.
-    Reserved17         [3]uint16  // 17 *
-    FrameCounter       uint32     // 20 *
-    FrameMean          uint16     // 22 * The average value from the whole frame
-    FPATempCounts      uint16     // 23
-    FPATemp            centiK     // 24 *
-    Reserved25         [4]uint16  // 25
-    FPATempLastFFC     centiK     // 29
-    TimeCounterLastFFC durationMS // 30 *
+    TelemetryRevision  uint16    // 0  *
+    TimeOn             uint32    // 1  *
+    StatusBits         uint32    // 3  * Bit field
+    Reserved5          [8]uint16 // 5  *
+    SoftwareRevision   uint64    // 13 - Junk.
+    Reserved17         [3]uint16 // 17 *
+    FrameCounter       uint32    // 20 *
+    FrameMean          uint16    // 22 * The average value from the whole frame
+    FPATempCounts      uint16    // 23
+    FPATemp            centiK    // 24 *
+    Reserved25         [4]uint16 // 25
+    FPATempLastFFC     centiK    // 29
+    TimeCounterLastFFC uint32    // 30 *
 }
