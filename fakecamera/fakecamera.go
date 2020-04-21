@@ -1,4 +1,4 @@
-// fake-lepton - read a cptv file and send it has raw frames to thermal-recorder
+// fake-lepton - read a CPTV file and send it has raw frames to thermal-recorder
 //  Copyright (C) 2020, The Cacophony Project
 //
 // This program is free software: you can redistribute it and/or modify
@@ -127,7 +127,7 @@ func connectToSocket() error {
     }
 
     conn.Write([]byte("\n"))
-    log.Printf("Listening for send cptv ...")
+    log.Printf("Listening for send frames ...")
     return queueLoop(conn)
 }
 
@@ -203,7 +203,7 @@ func ClearQueue(stop bool) {
 }
 
 type shape interface {
-    // gets the 2 x intersections points of thie line (y) with the shape
+    // gets the 2 x intersections points of this line (y) with the shape
     intersections(h *spot, y int) (int, int)
 }
 
@@ -343,7 +343,7 @@ func getHotspots(params url.Values) ([]hotspot, error) {
     var hotspots []hotspot
     if hotspotRaw != "" {
         if err := json.Unmarshal([]byte(hotspotRaw), &hotspots); err != nil {
-            log.Printf("Coult not parse hotspot %v\n", err)
+            log.Printf("Could not parse hotspot %v\n", err)
             return nil, err
         }
     }
