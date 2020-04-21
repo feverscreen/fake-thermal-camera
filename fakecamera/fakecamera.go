@@ -222,11 +222,14 @@ func NewCircle(spot *spot) circle {
     c := circle{}
     c.h = float64(spot.X) + float64(spot.Width)/2.0
     c.k = float64(spot.Y) + float64(spot.Height)/2.0
+    // these are already squared for convenience
     c.a = math.Pow(float64(spot.Width)/2.0, 2)
     c.b = math.Pow(float64(spot.Height)/2.0, 2)
     return c
 }
 
+// intersections of a line with a circle solves the equations
+// (x-h)^2/a + (y-k)^2/b = 1
 func (r circle) intersections(h *spot, y int) (int, int) {
     res := math.Sqrt(r.a * (1 - math.Pow(float64(y)-r.k, 2)/r.b))
     return int(math.Ceil(-res + r.h)), int(math.Floor(res + r.h))
