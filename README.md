@@ -19,14 +19,14 @@ In the fake-thermal-camera folder start the test server with
 
 Open up http://localhost:2041/ to see the feverscreen display.
 
-Put any cptv files that you want to send to the fake camera in the directory fake-thermal-camera/cmd/fake-lepton/cptv-files
+Put any CPTV files that you want to send to the fake camera in the directory fake-thermal-camera/cmd/fake-lepton/cptv-files
 
 ## Browser Requests
 
 ### http://localhost:2040/sendCPTVFrames
-*Send cptv /generated CPTV frames*
+*Send file / generated CPTV frames*
 
-All query params are optional.  If you don't specify a filename it will try to use the file person.cptv
+All query parameters are optional.  If you don't specify a file name it will try to use the file person.cptv
 
 - cptv-file: {*string*} cptv-file to send (defaults to person.cptv)
 - start: {*number*} first frame to send
@@ -35,9 +35,9 @@ All query params are optional.  If you don't specify a filename it will try to u
 - repeat: {*number*} number of times to repeat the sending of file or number of frames to generate
 - minTemp: {*number*} min temp of frame
 - maxTemp: {*number*} max temp of frame
-- ffc: {*boolean*} if set to true, all generated / cptv frames will be ffc frames
+- ffc: {*boolean*} if set to true, all generated / file frames will be ffc frames
 - enqueue: {*boolean*} weather to enqueue the sending of these frames
-- hotspots: {*hotspot[]*} array of spots to draw over the generated / cptv frames 
+- hotspots: {*hotspot[]*} array of spots to draw over the generated / file frames 
 - hotspot:
     - shapeType: {*string*} "circle" or "rectangle"
     - x: {*number*} left position of the shape
