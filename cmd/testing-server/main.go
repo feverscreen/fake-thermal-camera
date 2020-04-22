@@ -160,7 +160,6 @@ func sendCPTVFramesHandler(w http.ResponseWriter, r *http.Request) {
 	if fileName == "" {
 		queryVars.Set("cptv-file", "person.cptv")
 	}
-	log.Printf("")
 	camera.Send(queryVars)
 
 	log.Printf("Sent CPTV Frames")
