@@ -171,9 +171,7 @@ func queueLoop(conn *net.UnixConn) error {
 
 func forceStop() {
     stopSending = true
-    play()
     log.Println("Stopping")
-
 }
 
 func Playback(params url.Values) {

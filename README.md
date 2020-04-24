@@ -60,3 +60,12 @@ All the hotspot fields are mandatory, The top left of a frame is (0,0) while the
 ### http://localhost:2040/clearCPTVQueue
 *Clears all enqueued files / frames*
 - stop: {*boolean*} stop sending of current frame
+
+### http://localhost:2040/playback
+*Controls the playback*
+
+Query parameters:
+ - stop: {*bool*} stops the current request (file / frames) playing
+ - play: {*bool*} continues play if paused
+ - clear: {*bool*} clears queue
+ - pause: {*bool*} pauses the playback (only, play will resume it)
