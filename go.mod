@@ -1,4 +1,4 @@
-module github.com/TheCacophonyProject/fake-thermal-camera
+module github.com/feverscreen/fake-thermal-camera
 
 require (
 	github.com/TheCacophonyProject/go-config v1.4.0

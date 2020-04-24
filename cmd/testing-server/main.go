@@ -7,15 +7,14 @@ import (
 	"log"
 	"net/http"
 	"os/exec"
-	"strconv"
 	"time"
 
 	"github.com/godbus/dbus"
 	"github.com/gorilla/mux"
 
-	camera "github.com/TheCacophonyProject/fake-thermal-camera/fakecamera"
 	config "github.com/TheCacophonyProject/go-config"
 	arg "github.com/alexflint/go-arg"
+	camera "github.com/feverscreen/fake-thermal-camera/fakecamera"
 )
 
 type argSpec struct {
@@ -38,9 +37,6 @@ func procArgs() argSpec {
 func main() {
 	args := procArgs()
 	go camera.RunCamera(args.CPTVDir, args.ConfigDir)
-	if err := runServer(); err != nil {
-		log.Fatal(err)
-	}
 
 	if err := runServer(); err != nil {
 		log.Fatal(err)
@@ -57,7 +53,7 @@ func runServer() error {
 	router.HandleFunc("/", homeHandler)
 	router.HandleFunc("/triggerEvent/{type}", triggerEventHandler)
 	router.HandleFunc("/sendCPTVFrames", sendCPTVFramesHandler)
-	router.HandleFunc("/clearCPTVQueue", clearCPTVQueue)
+	router.HandleFunc("/playback", playbackHandler)
 
 	log.Fatal(http.ListenAndServe(":2040", router))
 	return nil
@@ -166,11 +162,8 @@ func sendCPTVFramesHandler(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, "Success")
 }
 
-func clearCPTVQueue(w http.ResponseWriter, r *http.Request) {
-	stop, _ := strconv.ParseBool(r.URL.Query().Get("stop"))
-	camera.ClearQueue(stop)
-
-	log.Printf("Clear CPTV Frames")
+func playbackHandler(w http.ResponseWriter, r *http.Request) {
+	camera.Playback(r.URL.Query())
 	io.WriteString(w, "Success")
 }
 

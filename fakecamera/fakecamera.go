@@ -46,25 +46,24 @@ const (
     frameMinTemp = 3000
     frameMaxTemp = 4000
     sendSocket   = "/var/run/lepton-frames"
-    queueSleep   = 1 * time.Second
 
     sleepTime   = 30 * time.Second
     lockTimeout = 10 * time.Second
 )
 
 var (
-    startTime                 = time.Now()
-    lockChannel chan struct{} = make(chan struct{}, 1)
-    wg          sync.WaitGroup
-    cptvDir     = "/cptv-files"
-
-    stopSending = false
-    camera      cptvframe.CameraSpec
-    queue       = newQueue()
+    startTime     = time.Now()
+    playCondition = sync.NewCond(&sync.Mutex{})
+    stopSending   = false
+    playing       = true
+    cptvDir       string
+    camera        cptvframe.CameraSpec
+    queue         *Queue = newQueue()
 )
 
 func RunCamera(newCPTVDir, configDir string) error {
     cptvDir = newCPTVDir
+    playCondition.L.Lock()
     var err error
     camera, err = getCameraSpec(configDir)
     if err != nil {
@@ -134,7 +133,8 @@ func Send(params url.Values) {
         enq = false
     }
     if !enq {
-        ClearQueue(true)
+        clearQueue(true)
+        play()
     }
     queue.enqueue(params)
 }
@@ -144,7 +144,7 @@ func queueLoop(conn *net.UnixConn) error {
         stopSending = false
         params := queue.dequeue()
         if params == nil {
-            time.Sleep(queueSleep)
+            queue.wait()
             continue
         }
         repeat, _ := strconv.Atoi(params.Get("repeat"))
@@ -171,33 +171,85 @@ func queueLoop(conn *net.UnixConn) error {
 
 func forceStop() {
     stopSending = true
+    play()
+    log.Println("Stopping")
+
 }
 
-func ClearQueue(stop bool) {
+func Playback(params url.Values) {
+    stop, _ := strconv.ParseBool(params.Get("stop"))
+    clear, _ := strconv.ParseBool(params.Get("clear"))
+
+    if clear {
+        clearQueue(stop)
+        return
+    }
+    if stop {
+        forceStop()
+        return
+    }
+
+    pauseB, _ := strconv.ParseBool(params.Get("pause"))
+    if pauseB {
+        pause()
+        return
+    }
+    playB, _ := strconv.ParseBool(params.Get("play"))
+    if playB {
+        play()
+        return
+    }
+}
+func play() {
+    if playing {
+        return
+    }
+    log.Println("Playing")
+    playCondition.L.Lock()
+    playing = true
+    playCondition.L.Unlock()
+    playCondition.Signal()
+
+}
+
+func pause() {
+    if !playing {
+        return
+    }
+    log.Println("Pausing")
+    playing = false
+}
+
+func clearQueue(stop bool) {
     queue.clear()
     if stop {
         forceStop()
     }
+    log.Println("QueueCleared")
+
 }
 
 func makeFrame(minTemp, maxTemp int, hotspots []hotspot) *cptvframe.Frame {
-    var pix int
     out := cptvframe.NewFrame(camera)
     for y, row := range out.Pix {
         for x, _ := range row {
-            if maxTemp <= minTemp {
-                pix = minTemp
-            } else {
-                pix = minTemp + rand.Intn(maxTemp-minTemp)
-            }
-            out.Pix[y][x] = uint16(pix)
+            out.Pix[y][x] = generatePixel(minTemp, maxTemp)
         }
     }
-    addHotpsots(out.Pix, hotspots)
+    addHotspots(out.Pix, hotspots)
     return out
 }
 
-func addHotpsots(pix [][]uint16, hotspots []hotspot) {
+func generatePixel(minTemp, maxTemp int) uint16 {
+    var pix int
+    if maxTemp <= minTemp {
+        pix = minTemp
+    } else {
+        pix = minTemp + rand.Intn(maxTemp-minTemp)
+    }
+    return uint16(pix)
+}
+func addHotspots(pix [][]uint16, hotspots []hotspot) {
     if hotspots == nil {
         return
     }
@@ -263,6 +315,9 @@ func sendFrames(conn *net.UnixConn, params url.Values, frames int) error {
     var reaminingBytes [576]byte
     frameSleep := time.Duration(1000/fps) * time.Millisecond
     for i := 0; i < frames; i++ {
+        if !playing {
+            playCondition.Wait()
+        }
         if stopSending {
             return nil
         }
@@ -281,7 +336,6 @@ func sendFrames(conn *net.UnixConn, params url.Values, frames int) error {
         time.Sleep(frameSleep)
         if _, err := conn.Write(buf.Bytes()); err != nil {
             // reconnect to socket
-            wg.Done()
             return err
         }
 
@@ -308,6 +362,9 @@ func sendFramesFromFile(conn *net.UnixConn, r *cptv.FileReader, params url.Value
 
     frameSleep := time.Duration(1000/fps) * time.Millisecond
     for index := 0; index <= end || end == 0; index++ {
+        if !playing {
+            playCondition.Wait()
+        }
         if stopSending {
             return nil
         }
@@ -317,7 +374,7 @@ func sendFramesFromFile(conn *net.UnixConn, r *cptv.FileReader, params url.Value
         }
 
         if index >= start {
-            addHotpsots(frame.Pix, hotspots)
+            addHotspots(frame.Pix, hotspots)
             setStatus(&frame.Status, frame.Status.TimeOn, ffc, 0)
 
             buf := rawTelemetryBytes(frame.Status)
@@ -331,7 +388,6 @@ func sendFramesFromFile(conn *net.UnixConn, r *cptv.FileReader, params url.Value
             time.Sleep(frameSleep)
             if _, err := conn.Write(buf.Bytes()); err != nil {
                 // reconnect to socket
-                wg.Done()
                 return err
             }
         }

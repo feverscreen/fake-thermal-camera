@@ -3,7 +3,6 @@ package fakecamera
 import (
     "encoding/json"
     "math"
-    "math/rand"
 )
 
 type shape interface {
@@ -52,17 +51,9 @@ func (h hotspot) addSpot(pix [][]uint16) {
         start, stop := h.shape.intersections(h.spot, i)
         start = int(math.Max(float64(start), 0))
         for z := start; z <= stop && z < width; z++ {
-            pix[i][z] = h.generatePixel()
+            pix[i][z] = generatePixel(h.spot.MinTemp, h.spot.MaxTemp)
         }
     }
-}
-
-func (h *hotspot) generatePixel() uint16 {
-    if h.spot.MaxTemp <= h.spot.MinTemp {
-        return uint16(h.spot.MinTemp)
-    }
-
-    return uint16(h.spot.MinTemp + rand.Intn(h.spot.MaxTemp-h.spot.MinTemp))
 }
 
 type spot struct {
