@@ -291,9 +291,12 @@ func getHotspots(params url.Values) ([]hotspot, error) {
 
 func waitForPlay() {
     playCondition.L.Lock()
-    playCondition.Wait()
+    if !playing {
+        playCondition.Wait()
+    }
     playCondition.L.Unlock()
 }
+
 func sendFrames(conn *net.UnixConn, params url.Values, frames int) error {
     minTemp, _ := strconv.Atoi(params.Get("minTemp"))
     maxTemp, _ := strconv.Atoi(params.Get("maxTemp"))
