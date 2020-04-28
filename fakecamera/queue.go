@@ -10,22 +10,21 @@ const (
 )
 
 type Queue struct {
-	queueLock sync.Mutex
-	values    []url.Values
-	pending   bool
-	wg        sync.WaitGroup
+	values   []url.Values
+	pending  bool
+	waitCond *sync.Cond
 }
 
 func newQueue() *Queue {
-	return &Queue{values: make([]url.Values, 0, capacity)}
+	return &Queue{values: make([]url.Values, 0, capacity), waitCond: sync.NewCond(&sync.Mutex{})}
 }
 
 func (q *Queue) lock() {
-	q.queueLock.Lock()
+	q.waitCond.L.Lock()
 }
 
 func (q *Queue) unlock() {
-	q.queueLock.Unlock()
+	q.waitCond.L.Unlock()
 }
 
 func (q *Queue) enqueue(params url.Values) {
@@ -33,8 +32,7 @@ func (q *Queue) enqueue(params url.Values) {
 	defer q.unlock()
 	q.values = append(q.values, params)
 	if q.pending {
-		q.wg.Done()
-		q.pending = false
+		q.waitCond.Signal()
 	}
 }
 
@@ -57,10 +55,11 @@ func (q *Queue) clear() {
 }
 
 func (q *Queue) wait() {
+	q.lock()
+	defer q.unlock()
 	if !q.pending {
 		return
 	}
-	q.wg.Add(1)
-	q.wg.Wait()
+	q.waitCond.Wait()
 
 }

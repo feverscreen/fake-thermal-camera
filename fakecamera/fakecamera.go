@@ -63,7 +63,6 @@ var (
 
 func RunCamera(newCPTVDir, configDir string) error {
     cptvDir = newCPTVDir
-    playCondition.L.Lock()
     var err error
     camera, err = getCameraSpec(configDir)
     if err != nil {
@@ -198,10 +197,8 @@ func Playback(params url.Values) {
         return
     }
 }
+
 func play() {
-    if playing {
-        return
-    }
     log.Println("Playing")
     playCondition.L.Lock()
     playing = true
@@ -211,11 +208,10 @@ func play() {
 }
 
 func pause() {
-    if !playing {
-        return
-    }
     log.Println("Pausing")
+    playCondition.L.Lock()
     playing = false
+    playCondition.L.Unlock()
 }
 
 func clearQueue(stop bool) {
@@ -293,6 +289,11 @@ func getHotspots(params url.Values) ([]hotspot, error) {
     return hotspots, nil
 }
 
+func waitForPlay() {
+    playCondition.L.Lock()
+    playCondition.Wait()
+    playCondition.L.Unlock()
+}
 func sendFrames(conn *net.UnixConn, params url.Values, frames int) error {
     minTemp, _ := strconv.Atoi(params.Get("minTemp"))
     maxTemp, _ := strconv.Atoi(params.Get("maxTemp"))
@@ -314,7 +315,7 @@ func sendFrames(conn *net.UnixConn, params url.Values, frames int) error {
     frameSleep := time.Duration(1000/fps) * time.Millisecond
     for i := 0; i < frames; i++ {
         if !playing {
-            playCondition.Wait()
+            waitForPlay()
         }
         if stopSending {
             return nil
@@ -361,7 +362,7 @@ func sendFramesFromFile(conn *net.UnixConn, r *cptv.FileReader, params url.Value
     frameSleep := time.Duration(1000/fps) * time.Millisecond
     for index := 0; index <= end || end == 0; index++ {
         if !playing {
-            playCondition.Wait()
+            waitForPlay()
         }
         if stopSending {
             return nil
