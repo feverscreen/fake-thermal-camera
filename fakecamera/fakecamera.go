@@ -253,11 +253,14 @@ func addHotspots(pix [][]uint16, hotspots []hotspot) {
 	}
 }
 
-func setStatus(telemetry *cptvframe.Telemetry, timeon time.Duration, ffc bool, plusMS int) {
+func setStatus(telemetry *cptvframe.Telemetry, timeon time.Duration, ffc bool, plusMS int, lastFFC int) {
 	telemetry.TimeOn = timeon + time.Duration(plusMS)*time.Millisecond
 	if ffc {
 		telemetry.FFCState = "FFCRunning"
 		telemetry.LastFFCTime = timeon + time.Duration(plusMS)*time.Millisecond
+	}
+	if lastFFC >= 0 {
+		telemetry.LastFFCTime = time.Duration(lastFFC) * time.Second
 	}
 }
 func sendCPTV(conn *net.UnixConn, params url.Values) error {
@@ -302,6 +305,10 @@ func sendFrames(conn *net.UnixConn, params url.Values, frames int) error {
 	maxTemp, _ := strconv.Atoi(params.Get("maxTemp"))
 	ffc, _ := strconv.ParseBool(params.Get("ffc"))
 	fps, _ := strconv.Atoi(params.Get("fps"))
+	lastFFC, setLastFFC := strconv.Atoi(params.Get("last-ffc"))
+	if setLastFFC != nil {
+		lastFFC = -1
+	}
 	if fps == 0 {
 		fps = camera.FPS()
 	}
@@ -325,7 +332,7 @@ func sendFrames(conn *net.UnixConn, params url.Values, frames int) error {
 		}
 
 		frame := makeFrame(minTemp, maxTemp, hotspots)
-		setStatus(&frame.Status, time.Since(startTime), ffc, 0)
+		setStatus(&frame.Status, time.Since(startTime), ffc, 0, lastFFC)
 
 		buf := rawTelemetryBytes(frame.Status)
 		_ = binary.Write(buf, binary.BigEndian, reaminingBytes)
@@ -358,7 +365,9 @@ func sendFramesFromFile(conn *net.UnixConn, r *cptv.FileReader, params url.Value
 	hotspots, _ := getHotspots(params)
 	ffc, _ := strconv.ParseBool(params.Get("ffc"))
 	lastFFC, setLastFFC := strconv.Atoi(params.Get("last-ffc"))
-
+	if setLastFFC != nil {
+		lastFFC = -1
+	}
 	frame := r.Reader.EmptyFrame()
 	// Telemetry size of 640 -64(size of telemetry words)
 	var reaminingBytes [576]byte
@@ -378,10 +387,7 @@ func sendFramesFromFile(conn *net.UnixConn, r *cptv.FileReader, params url.Value
 
 		if index >= start {
 			addHotspots(frame.Pix, hotspots)
-			setStatus(&frame.Status, frame.Status.TimeOn, ffc, 0)
-			if setLastFFC == nil {
-				frame.Status.LastFFCTime = time.Duration(lastFFC) * time.Second
-			}
+			setStatus(&frame.Status, frame.Status.TimeOn, ffc, 0, lastFFC)
 			buf := rawTelemetryBytes(frame.Status)
 			_ = binary.Write(buf, binary.BigEndian, reaminingBytes)
 			for _, row := range frame.Pix {
