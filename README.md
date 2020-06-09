@@ -38,7 +38,7 @@ All query parameters are optional. If you don't specify a file name it will try 
 - minTemp: {_number_} min temp of frame (defaults to 3000)
 - maxTemp: {_number_} max temp of frame (defaults to 4000)
 - ffc: {_boolean_} if set to true, all generated / file frames will be ffc frames (defaults to false).
-- last-ffc: {_number_} overrides the last ffc time in the telemetry of every frame
+- ffc-time: {_number_} overrides the last ffc time in the telemetry of every frame
 - enqueue: {_boolean_} whether to enqueue the sending of these frames (defaults to false).
 - hotspots: {_JSON_}{_hotspot[]_} json array of spots to draw over the generated / file frames
   All the hotspot fields are mandatory, The top left of a frame is (0,0) while the bottom right is (width-1, height-1)
