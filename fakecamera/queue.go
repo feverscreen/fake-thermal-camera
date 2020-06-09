@@ -1,7 +1,6 @@
 package fakecamera
 
 import (
-	"net/url"
 	"sync"
 )
 
@@ -10,13 +9,13 @@ const (
 )
 
 type Queue struct {
-	values   []url.Values
+	values   []*params
 	pending  bool
 	waitCond *sync.Cond
 }
 
 func newQueue() *Queue {
-	return &Queue{values: make([]url.Values, 0, capacity), waitCond: sync.NewCond(&sync.Mutex{})}
+	return &Queue{values: make([]*params, 0, capacity), waitCond: sync.NewCond(&sync.Mutex{})}
 }
 
 func (q *Queue) lock() {
@@ -27,7 +26,7 @@ func (q *Queue) unlock() {
 	q.waitCond.L.Unlock()
 }
 
-func (q *Queue) enqueue(params url.Values) {
+func (q *Queue) enqueue(params *params) {
 	q.lock()
 	defer q.unlock()
 	q.values = append(q.values, params)
@@ -36,7 +35,7 @@ func (q *Queue) enqueue(params url.Values) {
 	}
 }
 
-func (q *Queue) dequeue() url.Values {
+func (q *Queue) dequeue() *params {
 	q.lock()
 	defer q.unlock()
 	if len(q.values) == 0 {
@@ -51,7 +50,7 @@ func (q *Queue) dequeue() url.Values {
 func (q *Queue) clear() {
 	q.lock()
 	defer q.unlock()
-	q.values = make([]url.Values, 0, capacity)
+	q.values = make([]*params, 0, capacity)
 }
 
 func (q *Queue) wait() {

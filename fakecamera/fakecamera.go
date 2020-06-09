@@ -17,26 +17,20 @@
 package fakecamera
 
 import (
-	"bytes"
 	"encoding/binary"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"gopkg.in/yaml.v1"
-	"io"
 	"log"
 	"math/rand"
 	"net"
 	"net/url"
-	"os"
-	"path"
 	"strconv"
 	"sync"
 	"time"
 
 	goconfig "github.com/TheCacophonyProject/go-config"
 
-	"github.com/TheCacophonyProject/go-cptv"
 	cptvframe "github.com/TheCacophonyProject/go-cptv/cptvframe"
 	lepton3 "github.com/TheCacophonyProject/lepton3"
 	"github.com/TheCacophonyProject/thermal-recorder/headers"
@@ -116,7 +110,7 @@ func connectToSocket() error {
 		headers.FPS:         camera.FPS(),
 	}
 
-	cameraYAML, err := yaml.Marshal(camera_specs)
+	cameraYAML, _ := yaml.Marshal(camera_specs)
 	if _, err := conn.Write(cameraYAML); err != nil {
 		return err
 	}
@@ -126,16 +120,14 @@ func connectToSocket() error {
 	return queueLoop(conn)
 }
 
-func Send(params url.Values) {
-	enq, err := strconv.ParseBool(params.Get("enqueue"))
-	if err != nil {
-		enq = false
-	}
-	if !enq {
+func Send(urlValues url.Values) {
+	p := &params{urlValues}
+
+	if !p.enqueue() {
 		clearQueue(true)
 		play()
 	}
-	queue.enqueue(params)
+	queue.enqueue(p)
 }
 
 func queueLoop(conn *net.UnixConn) error {
@@ -146,25 +138,12 @@ func queueLoop(conn *net.UnixConn) error {
 			queue.wait()
 			continue
 		}
-		repeat, _ := strconv.Atoi(params.Get("repeat"))
-		if repeat == 0 {
-			repeat = 1
-		}
 
-		generate, err := strconv.ParseBool(params.Get("generate"))
+		maker, err := NewFrameMaker(params)
 		if err != nil {
-			generate = false
+			return err
 		}
-		if generate {
-			sendFrames(conn, params, repeat)
-		} else {
-			for i := 0; i < repeat; i++ {
-				err := sendCPTV(conn, params)
-				if err != nil {
-					return err
-				}
-			}
-		}
+		sendFrames(conn, params, maker)
 	}
 }
 
@@ -223,17 +202,6 @@ func clearQueue(stop bool) {
 
 }
 
-func makeFrame(minTemp, maxTemp int, hotspots []hotspot) *cptvframe.Frame {
-	out := cptvframe.NewFrame(camera)
-	for y, row := range out.Pix {
-		for x, _ := range row {
-			out.Pix[y][x] = generatePixel(minTemp, maxTemp)
-		}
-	}
-	addHotspots(out.Pix, hotspots)
-	return out
-}
-
 func generatePixel(minTemp, maxTemp int) uint16 {
 	var pix int
 	if maxTemp <= minTemp {
@@ -242,54 +210,6 @@ func generatePixel(minTemp, maxTemp int) uint16 {
 		pix = minTemp + rand.Intn(maxTemp-minTemp)
 	}
 	return uint16(pix)
-}
-func addHotspots(pix [][]uint16, hotspots []hotspot) {
-	if hotspots == nil {
-		return
-	}
-
-	for _, hotspot := range hotspots {
-		hotspot.addSpot(pix)
-	}
-}
-
-func setStatus(telemetry *cptvframe.Telemetry, timeon time.Duration, ffc bool, plusMS int, lastFFC int) {
-	telemetry.TimeOn = timeon + time.Duration(plusMS)*time.Millisecond
-	if ffc {
-		telemetry.FFCState = "FFCRunning"
-		telemetry.LastFFCTime = timeon + time.Duration(plusMS)*time.Millisecond
-	}
-	if lastFFC >= 0 {
-		telemetry.LastFFCTime = time.Duration(lastFFC) * time.Second
-	}
-}
-func sendCPTV(conn *net.UnixConn, params url.Values) error {
-	file := params.Get("cptv-file")
-	fullpath := path.Join(cptvDir, file)
-	if _, err := os.Stat(fullpath); err != nil {
-		log.Printf("%v does not exist\n", fullpath)
-		return err
-	}
-	r, err := cptv.NewFileReader(fullpath)
-	if err != nil {
-		return err
-	}
-	defer r.Close()
-	log.Printf("sending raw frames of %v\n", fullpath)
-	return sendFramesFromFile(conn, r, params)
-
-}
-
-func getHotspots(params url.Values) ([]hotspot, error) {
-	hotspotRaw := params.Get("hotspots")
-	var hotspots []hotspot
-	if hotspotRaw != "" {
-		if err := json.Unmarshal([]byte(hotspotRaw), &hotspots); err != nil {
-			log.Printf("Could not parse hotspot %v\n", err)
-			return nil, err
-		}
-	}
-	return hotspots, nil
 }
 
 func waitForPlay() {
@@ -300,30 +220,12 @@ func waitForPlay() {
 	playCondition.L.Unlock()
 }
 
-func sendFrames(conn *net.UnixConn, params url.Values, frames int) error {
-	minTemp, _ := strconv.Atoi(params.Get("minTemp"))
-	maxTemp, _ := strconv.Atoi(params.Get("maxTemp"))
-	ffc, _ := strconv.ParseBool(params.Get("ffc"))
-	fps, _ := strconv.Atoi(params.Get("fps"))
-	lastFFC, setLastFFC := strconv.Atoi(params.Get("last-ffc"))
-	if setLastFFC != nil {
-		lastFFC = -1
-	}
-	if fps == 0 {
-		fps = camera.FPS()
-	}
-	if minTemp == 0 {
-		minTemp = frameMinTemp
-	}
-	if maxTemp == 0 {
-		maxTemp = frameMaxTemp
-	}
-	hotspots, _ := getHotspots(params)
+func sendFrames(conn *net.UnixConn, params *params, f *frameMaker) error {
 
 	// Telemetry size of 640 -64(size of telemetry words)
 	var reaminingBytes [576]byte
-	frameSleep := time.Duration(1000/fps) * time.Millisecond
-	for i := 0; i < frames; i++ {
+	frameSleep := time.Duration(1000/f.fps) * time.Millisecond
+	for {
 		if !playing {
 			waitForPlay()
 		}
@@ -331,8 +233,10 @@ func sendFrames(conn *net.UnixConn, params url.Values, frames int) error {
 			return nil
 		}
 
-		frame := makeFrame(minTemp, maxTemp, hotspots)
-		setStatus(&frame.Status, time.Since(startTime), ffc, 0, lastFFC)
+		frame, err := f.NextFrame()
+		if err != nil {
+			break
+		}
 
 		buf := rawTelemetryBytes(frame.Status)
 		_ = binary.Write(buf, binary.BigEndian, reaminingBytes)
@@ -350,111 +254,4 @@ func sendFrames(conn *net.UnixConn, params url.Values, frames int) error {
 
 	}
 	return nil
-}
-
-func sendFramesFromFile(conn *net.UnixConn, r *cptv.FileReader, params url.Values) error {
-	fps, _ := strconv.Atoi(params.Get("fps"))
-	if fps == 0 {
-		fps = r.Reader.FPS()
-		if fps == 0 {
-			fps = camera.FPS()
-		}
-	}
-	start, _ := strconv.Atoi(params.Get("start"))
-	end, _ := strconv.Atoi(params.Get("end"))
-	hotspots, _ := getHotspots(params)
-	ffc, _ := strconv.ParseBool(params.Get("ffc"))
-	lastFFC, setLastFFC := strconv.Atoi(params.Get("last-ffc"))
-	if setLastFFC != nil {
-		lastFFC = -1
-	}
-	frame := r.Reader.EmptyFrame()
-	// Telemetry size of 640 -64(size of telemetry words)
-	var reaminingBytes [576]byte
-
-	frameSleep := time.Duration(1000/fps) * time.Millisecond
-	for index := 0; index <= end || end == 0; index++ {
-		if !playing {
-			waitForPlay()
-		}
-		if stopSending {
-			return nil
-		}
-		err := r.ReadFrame(frame)
-		if err == io.EOF {
-			break
-		}
-
-		if index >= start {
-			addHotspots(frame.Pix, hotspots)
-			setStatus(&frame.Status, frame.Status.TimeOn, ffc, 0, lastFFC)
-			buf := rawTelemetryBytes(frame.Status)
-			_ = binary.Write(buf, binary.BigEndian, reaminingBytes)
-			for _, row := range frame.Pix {
-				for x, _ := range row {
-					_ = binary.Write(buf, binary.BigEndian, row[x])
-				}
-			}
-			// replicate cptv frame rate
-			time.Sleep(frameSleep)
-			if _, err := conn.Write(buf.Bytes()); err != nil {
-				// reconnect to socket
-				return err
-			}
-		}
-
-	}
-	return nil
-}
-
-func rawTelemetryBytes(t cptvframe.Telemetry) *bytes.Buffer {
-	var tw telemetryWords
-	tw.TimeOn = uint32(t.TimeOn.Milliseconds())
-	tw.StatusBits = ffcStateToStatus(t.FFCState)
-	tw.FrameCounter = uint32(t.FrameCount)
-	tw.FrameMean = t.FrameMean
-	tw.FPATemp = ToK(t.TempC)
-	tw.FPATempLastFFC = ToK(t.LastFFCTempC)
-	tw.TimeCounterLastFFC = uint32(t.LastFFCTime.Milliseconds())
-	buf := new(bytes.Buffer)
-	binary.Write(buf, lepton3.Big16, tw)
-	return buf
-}
-
-const statusFFCStateShift uint32 = 4
-
-func ffcStateToStatus(status string) uint32 {
-	var state uint32 = 3
-	switch status {
-	case lepton3.FFCNever:
-		state = 0
-	case lepton3.FFCImminent:
-		state = 1
-	case lepton3.FFCRunning:
-		state = 2
-	}
-	state = state << statusFFCStateShift
-	return state
-}
-
-type centiK uint16
-
-func ToK(c float64) centiK {
-	return centiK(c*100 + 27315)
-}
-
-type telemetryWords struct {
-	TelemetryRevision  uint16    // 0  *
-	TimeOn             uint32    // 1  *
-	StatusBits         uint32    // 3  * Bit field
-	Reserved5          [8]uint16 // 5  *
-	SoftwareRevision   uint64    // 13 - Junk.
-	Reserved17         [3]uint16 // 17 *
-	FrameCounter       uint32    // 20 *
-	FrameMean          uint16    // 22 * The average value from the whole frame
-	FPATempCounts      uint16    // 23
-	FPATemp            centiK    // 24 *
-	Reserved25         [4]uint16 // 25
-	FPATempLastFFC     centiK    // 29
-	TimeCounterLastFFC uint32    // 30 *
 }
