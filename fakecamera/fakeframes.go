@@ -15,6 +15,7 @@ import (
 type frameReader interface {
 	Next() (*cptvframe.Frame, error)
 	FPS() int
+	Close()
 }
 
 type frameMaker struct {
@@ -92,6 +93,9 @@ type fakeReader struct {
 
 func NewFakeReader(p *params) *fakeReader {
 	return &fakeReader{frame: cptvframe.NewFrame(camera), minTemp: p.minTemp(), maxTemp: p.maxTemp(), frames: p.repeat()}
+}
+
+func (f *fakeReader) Close() {
 }
 
 func (f *fakeReader) FPS() int {

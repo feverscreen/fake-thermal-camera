@@ -143,6 +143,7 @@ func queueLoop(conn *net.UnixConn) error {
 		if err != nil {
 			return err
 		}
+		defer maker.Close()
 		sendFrames(conn, params, maker)
 	}
 }
