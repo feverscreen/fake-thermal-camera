@@ -143,7 +143,6 @@ func queueLoop(conn *net.UnixConn) error {
 		if err != nil {
 			return err
 		}
-		defer maker.Close()
 		sendFrames(conn, params, maker)
 	}
 }
@@ -222,7 +221,7 @@ func waitForPlay() {
 }
 
 func sendFrames(conn *net.UnixConn, params *params, f *frameMaker) error {
-
+	defer f.Close()
 	// Telemetry size of 640 -64(size of telemetry words)
 	var reaminingBytes [576]byte
 	frameSleep := time.Duration(1000/f.fps) * time.Millisecond
