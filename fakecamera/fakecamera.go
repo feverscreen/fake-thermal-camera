@@ -19,6 +19,7 @@ package fakecamera
 import (
 	"encoding/binary"
 	"errors"
+	"os"
 	"fmt"
 	"gopkg.in/yaml.v1"
 	"log"
@@ -140,6 +141,9 @@ func queueLoop(conn *net.UnixConn) error {
 		}
 
 		maker, err := NewFrameMaker(params)
+		if( os.IsNotExist(err)){
+			continue;
+		}
 		if err != nil {
 			return err
 		}
