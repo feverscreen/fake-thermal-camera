@@ -19,13 +19,13 @@ package fakecamera
 import (
 	"encoding/binary"
 	"errors"
-	"os"
 	"fmt"
 	"gopkg.in/yaml.v1"
 	"log"
 	"math/rand"
 	"net"
 	"net/url"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -106,8 +106,8 @@ func connectToSocket() error {
 		headers.YResolution: camera.ResY(),
 		headers.XResolution: camera.ResX(),
 		headers.FrameSize:   lepton3.BytesPerFrame,
-		headers.Model:       lepton3.Model,
-		headers.Brand:       lepton3.Brand,
+		headers.Model:       "lepton3.5",
+		headers.Brand:       "flir",
 		headers.FPS:         camera.FPS(),
 	}
 
@@ -141,8 +141,8 @@ func queueLoop(conn *net.UnixConn) error {
 		}
 
 		maker, err := NewFrameMaker(params)
-		if( os.IsNotExist(err)){
-			continue;
+		if os.IsNotExist(err) {
+			continue
 		}
 		if err != nil {
 			return err
@@ -250,12 +250,11 @@ func sendFrames(conn *net.UnixConn, params *params, f *frameMaker) error {
 			}
 		}
 		// replicate cptv frame rate
-		time.Sleep(frameSleep)
 		if _, err := conn.Write(buf.Bytes()); err != nil {
 			// reconnect to socket
 			return err
 		}
-
+		time.Sleep(frameSleep)
 	}
 	return nil
 }
