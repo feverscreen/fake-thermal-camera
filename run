@@ -90,8 +90,6 @@ if not args.cache:
     build_container_cmd.append("--no-cache")
 subprocess.check_call(add_sudo(build_container_cmd))
 
-print("go path is " + os.environ["GOPATH"])
-
 print("Starting container")
 print("volume is " + os.getcwd())
 base_path = os.path.dirname(os.getcwd())

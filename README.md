@@ -10,7 +10,9 @@ Licence | GNU General Public License v3.0
 
 ## Development Instructions
 
-Download fake-thermal-camera and feverscreen into the same folder.
+*  Download fake-thermal-camera and feverscreen into the same folder.
+*  Install docker
+
 
 In the fake-thermal-camera folder start the test server with
 ```
