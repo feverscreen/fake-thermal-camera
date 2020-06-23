@@ -111,7 +111,7 @@ func connectToSocket() error {
         headers.YResolution: camera.ResY(),
         headers.XResolution: camera.ResX(),
         headers.FrameSize:   lepton3.BytesPerFrame,
-        headers.Model:       lepton3.Model,
+        headers.Model:       "lepton3.5",
         headers.Brand:       lepton3.Brand,
         headers.FPS:         camera.FPS(),
     }

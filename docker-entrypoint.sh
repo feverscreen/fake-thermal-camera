@@ -1,13 +1,14 @@
 #!/bin/bash
 
+set -e
+
 echo --starting dbus --
 dbus-daemon --config-file=/usr/share/dbus-1/system.conf --print-address
 
 echo --- fever-screen ----
 cd /code/feverscreen
 echo Building fever-fever....
-make build ./...
-cp    "../feverscreen/webserver/_release/managementd-avahi.service" "/etc/avahi/services/managementd.service"
+make build 
 
 echo --- starting supervisord ---
 /usr/bin/supervisord &

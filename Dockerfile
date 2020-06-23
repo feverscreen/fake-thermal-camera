@@ -18,7 +18,8 @@ RUN mkdir -p /var/run/dbus
 
 RUN mkdir -p /var/log/supervisor
 
-RUN go get github.com/gobuffalo/packr/packr
+RUN go get github.com/gobuffalo/packr/packr github.com/markbates/refresh
+
 
 COPY go* /dependencies/
 WORKDIR /dependencies
