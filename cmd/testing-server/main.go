@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os/exec"
@@ -45,6 +46,12 @@ func main() {
 
 var version = "<not set>"
 
+func addCorsHeadersToResponse(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+	w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, Access-Control-Request-Headers, Access-Control-Request-Method, Connection, Host, Origin, User-Agent, Referer, Cache-Control, X-header")
+}
+
 func runServer() error {
 	log.SetFlags(0)
 
@@ -52,9 +59,7 @@ func runServer() error {
 
 	// Handle all CORS preflight requests
 	router.Methods("OPTIONS").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
-		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, Access-Control-Request-Headers, Access-Control-Request-Method, Connection, Host, Origin, User-Agent, Referer, Cache-Control, X-header")
+		addCorsHeadersToResponse(w)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	})
@@ -63,6 +68,7 @@ func runServer() error {
 	router.HandleFunc("/", homeHandler)
 	router.HandleFunc("/triggerEvent/{type}", triggerEventHandler)
 	router.HandleFunc("/sendCPTVFrames", sendCPTVFramesHandler)
+	router.HandleFunc("/list", listAvailableCPTVFiles)
 	router.HandleFunc("/playback", playbackHandler)
 
 	log.Fatal(http.ListenAndServe(":2040", router))
@@ -70,6 +76,7 @@ func runServer() error {
 }
 
 func homeHandler(w http.ResponseWriter, r *http.Request) {
+	addCorsHeadersToResponse(w)
 	io.WriteString(w, "This is a Fake thermal camera test server.")
 }
 
@@ -161,6 +168,7 @@ func triggerEventHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func sendCPTVFramesHandler(w http.ResponseWriter, r *http.Request) {
+	addCorsHeadersToResponse(w)
 	queryVars := r.URL.Query()
 	fileName := queryVars.Get("cptv-file")
 	if fileName == "" {
@@ -172,7 +180,24 @@ func sendCPTVFramesHandler(w http.ResponseWriter, r *http.Request) {
 	io.WriteString(w, "Success")
 }
 
+func listAvailableCPTVFiles(w http.ResponseWriter, r *http.Request) {
+	addCorsHeadersToResponse(w)
+	files, err := ioutil.ReadDir(cptvDir)
+	var fileNames []string
+	if err != nil {
+		_, _ = io.WriteString(w, "[]")
+	}
+	for _, file := range files {
+		if !file.IsDir() {
+			fileNames = append(fileNames, file.Name())
+		}
+	}
+	filesJSON, err := json.Marshal(&fileNames)
+	_, _ = io.WriteString(w, string(filesJSON))
+}
+
 func playbackHandler(w http.ResponseWriter, r *http.Request) {
+	addCorsHeadersToResponse(w)
 	camera.Playback(r.URL.Query())
 	io.WriteString(w, "Success")
 }
