@@ -19,7 +19,6 @@ package fakecamera
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
 	"gopkg.in/yaml.v1"
 	"log"
 	"math/rand"
@@ -67,10 +66,10 @@ func RunCamera(newCPTVDir, configDir string) error {
 	for {
 		err = connectToSocket()
 		if err != nil {
-			fmt.Printf("Could not connect to socket %v will try again in %v\n", err, sleepTime)
+			log.Printf("Could not connect to socket %v will try again in %v\n", err, sleepTime)
 			time.Sleep(sleepTime)
 		} else {
-			fmt.Print("Disconnected\n")
+			log.Print("Disconnected\n")
 		}
 	}
 }
@@ -142,7 +141,7 @@ func queueLoop(conn *net.UnixConn) error {
 		maker, err := NewFrameMaker(params)
 
 		if err != nil {
-			fmt.Printf("Error making frames %v\n", err)
+			log.Printf("Error making frames %v\n", err)
 			continue
 		}
 		err = sendFrames(conn, params, maker)
