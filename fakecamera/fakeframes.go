@@ -9,6 +9,8 @@ import (
 
 	"github.com/TheCacophonyProject/go-cptv"
 	cptvframe "github.com/TheCacophonyProject/go-cptv/cptvframe"
+	lepton3 "github.com/TheCacophonyProject/lepton3"
+
 )
 
 // simple interface so we can read from a file or generate frames seemlessly
@@ -61,7 +63,7 @@ func addHotspots(pix [][]uint16, hotspots []hotspot) {
 func setStatus(telemetry *cptvframe.Telemetry, timeon time.Duration, ffc bool, plusMS int, lastFFC int) {
 	telemetry.TimeOn = timeon + time.Duration(plusMS)*time.Millisecond
 	if ffc {
-		telemetry.FFCState = "FFCRunning"
+		telemetry.FFCState = lepton3.FFCRunning
 		telemetry.LastFFCTime = timeon + time.Duration(plusMS)*time.Millisecond
 	}
 	if lastFFC >= 0 {
