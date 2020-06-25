@@ -25,7 +25,6 @@ import (
 	"math/rand"
 	"net"
 	"net/url"
-	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -42,7 +41,7 @@ const (
 	frameMaxTemp = 4000
 	sendSocket   = "/var/run/lepton-frames"
 
-	sleepTime   = 30 * time.Second
+	sleepTime   = 10 * time.Second
 	lockTimeout = 10 * time.Second
 )
 
@@ -141,13 +140,15 @@ func queueLoop(conn *net.UnixConn) error {
 		}
 
 		maker, err := NewFrameMaker(params)
-		if os.IsNotExist(err) {
+
+		if err != nil {
+			fmt.Printf("Error making frames %v\n", err)
 			continue
 		}
+		err = sendFrames(conn, params, maker)
 		if err != nil {
 			return err
 		}
-		sendFrames(conn, params, maker)
 	}
 }
 
