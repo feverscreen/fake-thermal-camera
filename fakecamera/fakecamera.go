@@ -314,7 +314,7 @@ func sendFrames(conn *net.UnixConn, params url.Values, frames int) error {
 	hotspots, _ := getHotspots(params)
 
 	// Telemetry size of 640 -64(size of telemetry words)
-	var reaminingBytes [576]byte
+	var remainingBytes [576]byte
 	frameSleep := time.Duration(1000/fps) * time.Millisecond
 	for i := 0; i < frames; i++ {
 		if !playing {
@@ -328,7 +328,7 @@ func sendFrames(conn *net.UnixConn, params url.Values, frames int) error {
 		setStatus(&frame.Status, time.Since(startTime), ffc, 0)
 
 		buf := rawTelemetryBytes(frame.Status)
-		_ = binary.Write(buf, binary.BigEndian, reaminingBytes)
+		_ = binary.Write(buf, binary.BigEndian, remainingBytes)
 		for _, row := range frame.Pix {
 			for x, _ := range row {
 				_ = binary.Write(buf, binary.BigEndian, row[x])
