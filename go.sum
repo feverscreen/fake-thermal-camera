@@ -15,8 +15,8 @@ github.com/TheCacophonyProject/lepton3 v0.0.0-20200617035048-c8720bf15f10 h1:7/E
 github.com/TheCacophonyProject/lepton3 v0.0.0-20200617035048-c8720bf15f10/go.mod h1:U/f3bquLhifNiV8HNCmb4QKUnMY2Y+1CwTVprFk/4Ng=
 github.com/TheCacophonyProject/periph v2.1.1-0.20200615222341-6834cd5be8c1+incompatible h1:0pEn1FoMTgOZR3EkqOTiqd0++jOS/jWlGrbvOHK0/KM=
 github.com/TheCacophonyProject/periph v2.1.1-0.20200615222341-6834cd5be8c1+incompatible/go.mod h1:K1wa07sGXKzV0G9p+4R069mZk4GOpqKW8GU6/k+BrIo=
-github.com/TheCacophonyProject/thermal-recorder v1.22.1-0.20200617043743-4e0b47f00a8a h1:LkInw9mcZ7D4PT6/kRZsPm8qhGmsFthIZqHxG6W0YrM=
-github.com/TheCacophonyProject/thermal-recorder v1.22.1-0.20200617043743-4e0b47f00a8a/go.mod h1:RfMibVWVl3JJEQrQSb4RGfsvwd6enq1LYEdn1FJMjvk=
+github.com/TheCacophonyProject/thermal-recorder v1.22.1-0.20200628225944-104ae420cba5 h1:tX+2o55zms1ZsLmulX5ANW1emJJq2OuiLyok2NaIxG4=
+github.com/TheCacophonyProject/thermal-recorder v1.22.1-0.20200628225944-104ae420cba5/go.mod h1:RfMibVWVl3JJEQrQSb4RGfsvwd6enq1LYEdn1FJMjvk=
 github.com/TheCacophonyProject/window v0.0.0-20190821235241-ab92c2ee24b6/go.mod h1:Vww417iimOb0s46Ndsm8U/vYtwc0dZUet4uW8QzBo4M=
 github.com/alecthomas/template v0.0.0-20160405071501-a0175ee3bccc/go.mod h1:LOuyumcjzFXgccqObfd/Ljyb9UuFJ6TxHnclSeseNhc=
 github.com/alecthomas/units v0.0.0-20151022065526-2efee857e7cf/go.mod h1:ybxpYRFXyAe+OPACYpWeL0wqObRcbAqCMya13uyzqw0=
