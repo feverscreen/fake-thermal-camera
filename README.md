@@ -1,6 +1,6 @@
 # fake thermal camera
 
-`fake-thermal-camera` is a server that runs some of the thermal camera code (currently on linux not raspberian). Is is designed for using with the cypress integration tests.
+`fake-thermal-camera` is a server that runs some of the thermal camera code (currently on linux not raspbian). Is is designed for using with the cypress integration tests.
 
 | Project  | fake-thermal-camera                                                        |
 | -------- | -------------------------------------------------------------------------- |
