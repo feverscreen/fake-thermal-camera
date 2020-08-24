@@ -12,6 +12,8 @@
 
 Download fake-thermal-camera and feverscreen into the same folder.
 
+Make sure Docker has been installed.
+
 In the fake-thermal-camera folder start the test server with
 
 ```
